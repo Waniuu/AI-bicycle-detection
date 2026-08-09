@@ -14,6 +14,7 @@ import io
 import os
 import time
 import logging
+import yaml
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -269,3 +270,16 @@ async def export_detail():
         )
     finally:
         conn.close()
+
+@app.post("/api/config")
+async def update_config(data: dict):
+	if "crossing_line" in data:
+		state.config['tracker']['crossing_line_y'] = int(data["crossing_line_y"])
+
+	if "min_confidence" in data:
+		state.config['model']['min_confidence'] = float(data["min_confidence"])
+
+	with open("config.yaml", "w") as f:
+		yaml.dump(state.config,f)
+
+	return{"status":"ok"}

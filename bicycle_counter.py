@@ -45,18 +45,6 @@ _shutdown = threading.Event()
 # ---------------------------------------------------------------------------
 # Tracker
 # ---------------------------------------------------------------------------
-class Track:
-    __slots__ = ("id", "cx", "cy", "bbox", "confidence", "last_seen", "created_at", "counted")
-    def __init__(self, tid, cx, cy, bbox, confidence):
-        self.id = tid
-        self.cx = cx
-        self.cy = cy
-        self.bbox = bbox
-        self.confidence = confidence
-        self.last_seen = time.time()
-        self.created_at = time.time()
-        self.counted = False
-
 
 def compute_iou(a, b):
     ax1, ay1, ax2, ay2 = a
@@ -69,6 +57,23 @@ def compute_iou(a, b):
     union = area_a + area_b - inter
     return inter / union if union > 0 else 0.0
 
+
+class Track:
+    
+    __slots__ = ("id", "cx", "cy", "prev_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score")
+    
+    def __init__(self, tid, cx, cy, bbox, confidence):
+        self.id = tid
+        self.cx = cx
+        self.cy = cy
+        self.prev_cy = cy  
+        self.bbox = bbox
+        self.confidence = confidence
+        self.last_seen = time.time()
+        self.created_at = time.time()
+        self.counted = False
+        self.best_frame = None  
+        self.best_score = 0.0   
 
 class Tracker:
     def __init__(self):
@@ -100,14 +105,23 @@ class Tracker:
             if best_score > 0 and best_j >= 0:
                 det = detections[best_j]
                 used.add(best_j)
+                
+                track.prev_cy = track.cy
                 track.cx, track.cy = det["cx"], det["cy"]
                 track.bbox = det["bbox_xyxy"]
                 track.confidence = det["confidence"]
                 track.last_seen = now
+                
                 matched.append({
-                    "track_id": track.id, "cx": track.cx, "cy": track.cy,
-                    "bbox": det["bbox"], "bbox_xyxy": det["bbox_xyxy"],
-                    "confidence": track.confidence, "counted": track.counted,
+                    "track_id": track.id, 
+                    "cx": track.cx, 
+                    "cy": track.cy,
+                    "prev_cy": track.prev_cy,  
+                    "bbox": det["bbox"], 
+                    "bbox_xyxy": det["bbox_xyxy"],
+                    "confidence": track.confidence, 
+                    "counted": track.counted,
+                    "track_obj": track         
                 })
 
         for j, det in enumerate(detections):
@@ -117,9 +131,15 @@ class Tracker:
             self._next_id += 1
             self.tracks.append(t)
             matched.append({
-                "track_id": t.id, "cx": t.cx, "cy": t.cy,
-                "bbox": det["bbox"], "bbox_xyxy": det["bbox_xyxy"],
-                "confidence": t.confidence, "counted": False,
+                "track_id": t.id, 
+                "cx": t.cx, 
+                "cy": t.cy,
+                "prev_cy": t.prev_cy,
+                "bbox": det["bbox"], 
+                "bbox_xyxy": det["bbox_xyxy"],
+                "confidence": t.confidence, 
+                "counted": False,
+                "track_obj": t
             })
         return matched
 
@@ -147,11 +167,19 @@ state = SharedState()
 
 def draw_osd(img_pil, detections, total_count):
     draw = ImageDraw.Draw(img_pil)
+
+    tracker_cfg = CFG.get("tracker", {})
+    if tracker_cfg.get("use_crossing_line", False):
+        line_y = tracker_cfg.get("crossing_line_y", CFG.get("crossing_line_y", 240))
+        width, _ = img_pil.size
+        draw.line([(0, line_y), (width, line_y)], fill="red", width=3)
+
+
     draw.text((10, 10), f"Bicycles: {total_count}", fill="yellow")
     for det in detections:
         x, y, w, h = det["bbox"]
         draw.rectangle([x, y, x + w, y + h], outline="lime", width=2)
-        draw.text((x, y - 14), f"#{det['track_id']} {det['confidence']:.0%}", fill="white")
+        draw.text((x, y - 14), f"{det['confidence']:.0%}", fill="white")
     return img_pil
 
 
@@ -208,7 +236,7 @@ def main():
     state.camera_ok = True
     LOG.info("Camera opened: %dx%d", int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
-    import CounterProject.dashboard_server as dashboard_server
+    import dashboard_server
     dashboard_server.set_shared_state(state)
     dashboard_server.set_db(db, location_id, device_id)
     dashboard_server.set_config(CFG)
@@ -241,7 +269,8 @@ def main():
 
             consecutive_failures = 0
             state.camera_ok = True
-            results = model(frame, verbose=False, conf=CFG["min_confidence"])
+            current_conf = CFG.get("model", {}).get("min_confidence", CFG.get("min_confidence", 0.45))
+            results = model(frame, verbose=False, conf=current_conf)
             raw_dets = []
 
             for r in results:
@@ -263,28 +292,59 @@ def main():
             new_bikes = []
             now_check = time.time()
 
+            line_y = CFG.get("tracker", {}).get("crossing_line_y", CFG.get("crossing_line_y", 240))
+            img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img_pil = Image.fromarray(img_rgb)
+
+            use_line = CFG.get("tracker", {}).get("use_crossing_line", False)
+
             for det in detections:
                 tid = det["track_id"]
                 active_ids.add(tid)
-                if not det["counted"]:
-                    for t in tracker.tracks:
-                        if t.id == tid:
-                            if now_check - t.created_at >= CFG["track_persist_time"]:
-                                is_dup = False
-                                for cx, cy, ts in state.counted_positions:
-                                    if now_check - ts < CFG["dedup_ttl"]:
-                                        if ((det["cx"] - cx)**2 + (det["cy"] - cy)**2)**0.5 < CFG["dedup_distance"]:
-                                            is_dup = True
-                                            break
-                                if not is_dup:
-                                    t.counted = True
-                                    state.bicycle_count += 1
-                                    state.counted_positions.append((det["cx"], det["cy"], now_check))
-                                    new_bikes.append(det)
-                                    LOG.info("NEW BIKE #%d | Total: %d", tid, state.bicycle_count)
-                                else:
-                                    t.counted = True
-                            break
+
+                track_obj = det.get("track_obj")
+                if not track_obj:
+                    continue
+
+                bx1, by1, bx2, by2 = det["bbox_xyxy"]
+                w, h = bx2 - bx1, by2 - by1
+
+               
+                current_score = det["confidence"] * (w * h)
+                if current_score > track_obj.best_score:
+                    track_obj.best_score = current_score
+
+                  
+                    frame_with_box = img_pil.copy()
+                    draw_box = ImageDraw.Draw(frame_with_box)
+                    draw_box.rectangle([bx1, by1, bx2, by2], outline="lime", width=3)
+                    draw_box.rectangle([bx1, by1 - 18, bx1 + 80, by1], fill="black")
+                    draw_box.text((bx1 + 2, by1 - 16), f"#{tid} {det['confidence']:.0%}", fill="lime")
+                    
+                    track_obj.best_frame = frame_with_box
+
+           
+                if not track_obj.counted:
+                    should_count = False
+
+                    if use_line:
+                        was_above_or_near = track_obj.prev_cy < (line_y + 50)
+                        is_now_at_or_below = det["cy"] >= line_y
+                        if was_above_or_near and is_now_at_or_below:
+                            should_count = True
+                    else:
+                       
+                        should_count = True
+
+                    if should_count:
+                        track_obj.counted = True
+                        state.bicycle_count += 1
+
+                        new_bikes.append({
+                            "track_id": tid,
+                            "image": track_obj.best_frame or img_pil
+                        })
+                        LOG.info("NEW BIKE #%d detected | Total: %d", tid, state.bicycle_count)
 
             state.counted_positions = [(x, y, t) for x, y, t in state.counted_positions if now_check - t < CFG["dedup_ttl"]]
 
@@ -298,8 +358,7 @@ def main():
                     if dt > 0:
                         state.fps = (len(state._frame_times) - 1) / dt
 
-            img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img_pil = Image.fromarray(img_rgb)
+          
             img_pil = draw_osd(img_pil, detections, state.bicycle_count)
             jpeg_buf = io.BytesIO()
             img_pil.save(jpeg_buf, format="JPEG", quality=75)
@@ -309,7 +368,11 @@ def main():
             for det in new_bikes:
                 ts_str = time.strftime("%H-%M-%S")
                 fname = f"bike_{ts_str}_id{det['track_id']}.jpg"
-                img_pil.save(os.path.join(SCREENSHOT_DIR, fname), format="JPEG", quality=90)
+                
+                # Zapisujemy zachowaną najlepszą klatkę!
+                save_img = det["image"]
+                save_img.save(os.path.join(SCREENSHOT_DIR, fname), format="JPEG", quality=90)
+                
                 iso_ts = datetime.now().isoformat(timespec="seconds")
                 db.record_crossing(location_id, iso_ts, int(det["track_id"]), device_id=device_id)
                 db.cleanup_screenshots()
