@@ -1,0 +1,17 @@
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+offsets=0;0;0
+model-engine-file=/home/student/CounterProject/yolo11n.engine
+labelfile-path=/home/student/CounterProject/labels.txt
+batch-size=1
+network-mode=0
+num-detected-classes=80
+cluster-mode=2
+gie-unique-id=1
+parse-bbox-func-name=NvDsInferParseYolo
+custom-lib-path=/home/student/CounterProject/libnvdsinfer_custom_impl_Yolo.so
+output-blob-names=output0
+
+[class-attrs-0]
+pre-cluster-threshold=0.45

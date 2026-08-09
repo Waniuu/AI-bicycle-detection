@@ -1,0 +1,8 @@
+screenshots/
+*.log
+*.csv
+*.pt
+*.engine
+*.tar.gz
+__pycache__/
+.venv/

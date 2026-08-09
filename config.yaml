@@ -1,0 +1,66 @@
+# =============================================================================
+# Bicycle Counter — Production Configuration
+# =============================================================================
+# All tunable parameters in one place. Override with environment variables
+# of the same name (uppercase, prefixed with BIKE_).
+# =============================================================================
+
+version: "2.0"
+
+# ── Device Identity ───────────────────────────────────────────────
+device:
+  name: "jetson-orin-01"
+  description: "Jetson Orin Nano - Main Unit"
+  location_name: "Camera_01"
+  location_description: "Main entrance"
+
+# ── Camera ────────────────────────────────────────────────────────
+camera:
+  device: "/dev/video0"
+  width: 640
+  height: 480
+  fps: 15
+  brightness: -30
+
+# ── Model ─────────────────────────────────────────────────────────
+model:
+  path: "yolo11n.engine"
+  bicycle_class_id: 1
+  min_confidence: 0.45
+
+# ── Tracker ───────────────────────────────────────────────────────
+tracker:
+  missing_ttl: 3.0
+  persist_time: 0.6
+  iou_threshold: 0.15
+  max_distance: 150
+
+# ── Deduplication ─────────────────────────────────────────────────
+dedup:
+  ttl: 5.0
+  distance: 120
+
+# ── MySQL ─────────────────────────────────────────────────────────
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "bikecounter"
+  password: "BikeCount2026!"
+  name: "bicycle_counter"
+  pool_size: 4
+
+# ── Data Retention ────────────────────────────────────────────────
+retention:
+  max_screenshots: 1000
+  keep_screenshots: 950
+  max_crossing_days: 90
+
+# ── Dashboard ─────────────────────────────────────────────────────
+dashboard:
+  host: "0.0.0.0"
+  port: 8080
+
+# ── Logging ───────────────────────────────────────────────────────
+logging:
+  level: "INFO"
+  file: "bicycle_counter.log"

@@ -1,0 +1,21 @@
+[Unit]
+Description=Bicycle Counter Pipeline
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=student
+WorkingDirectory=/home/student/CounterProject
+ExecStartPre=/usr/bin/fuser -k /dev/video0 2>/dev/null || true
+ExecStart=/home/student/CounterProject/run.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+Environment=LD_LIBRARY_PATH=/opt/nvidia/deepstream/deepstream/lib:/usr/local/cuda-13.2/lib64
+Environment=PIP_BREAK_SYSTEM_PACKAGES=1
+
+[Install]
+WantedBy=multi-user.target

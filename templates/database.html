@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bicycle Counter — Database</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 16px;display:flex;align-items:center;gap:10px}
+header h1{font-size:1rem;color:#58a6ff}
+header a{color:#8b949e;text-decoration:none;font-size:0.8rem;margin-left:auto}
+header a:hover{color:#58a6ff}
+.container{padding:16px;max-width:1400px;margin:0 auto}
+h2{font-size:1rem;color:#8b949e;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+h2 .count{background:#21262d;padding:2px 8px;border-radius:10px;font-size:0.75rem;color:#58a6ff}
+.table-wrap{overflow-x:auto;margin-bottom:24px;background:#161b22;border:1px solid #30363d;border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:0.85rem}
+th{position:sticky;top:0;background:#161b22;text-align:left;padding:10px 12px;border-bottom:2px solid #30363d;color:#8b949e;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px}
+td{padding:8px 12px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+.btn-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.btn{padding:8px 16px;border:1px solid #30363d;border-radius:6px;background:#161b22;color:#e0e0e0;font-size:0.8rem;cursor:pointer;text-decoration:none;display:inline-block}
+.btn:hover{background:#21262d;border-color:#58a6ff;color:#58a6ff}
+.btn.primary{background:#238636;border-color:#2ea043;color:#fff}
+.btn.primary:hover{background:#2ea043}
+.empty{color:#484f58;font-style:italic;text-align:center;padding:40px}
+.stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:16px}
+.stat{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;text-align:center}
+.stat .num{font-size:1.8rem;font-weight:700;color:#58a6ff}
+.stat .lbl{font-size:0.65rem;color:#8b949e;text-transform:uppercase;margin-top:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Database Viewer</h1>
+  <span class="meta" style="color:#58a6ff;margin-left:4px;font-size:0.75rem">v{{ version }}</span>
+  <a href="/">&larr; Back to Dashboard</a>
+</header>
+<div class="container">
+  <div class="stats-bar" id="statsBar"></div>
+  <div class="btn-bar">
+    <button class="btn primary" onclick="download('/export/csv')">Download 15-min Counts (CSV)</button>
+    <button class="btn primary" onclick="download('/export/detail')">Download All Detections (CSV)</button>
+    <button class="btn" onclick="loadAll()">Refresh</button>
+  </div>
+
+  <h2>15-Minute Aggregated Counts <span class="count" id="qCount">0</span></h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Time Period</th><th>Total Bikes</th></tr></thead>
+      <tbody id="qBody"><tr><td colspan="3" class="empty">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>All Detection Events <span class="count" id="cCount">0</span></h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Timestamp</th><th>Track ID</th><th>Location</th></tr></thead>
+      <tbody id="cBody"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<script>
+function download(url){window.location.href=url}
+async function loadAll(){
+  try{
+    const[qr,cr]=await Promise.all([fetch('/api/quarterly'),fetch('/api/crossings')]);
+    const qdata=await qr.json();
+    const cdata=await cr.json();
+    let totalAll=0;
+    qdata.forEach(r=>totalAll+=r.count);
+    document.getElementById('statsBar').innerHTML=`
+      <div class="stat"><div class="num">${totalAll}</div><div class="lbl">Total Bikes (All Time)</div></div>
+      <div class="stat"><div class="num">${cdata.length}</div><div class="lbl">Total Events</div></div>
+      <div class="stat"><div class="num">${qdata.length}</div><div class="lbl">15-min Buckets</div></div>`;
+    document.getElementById('qCount').textContent=qdata.length;
+    if(qdata.length===0){
+      document.getElementById('qBody').innerHTML='<tr><td colspan="3" class="empty">No data yet</td></tr>';
+    }else{
+      let html='';let dayTotal=0,prevDate='';
+      qdata.slice().reverse().forEach(r=>{
+        if(r.date!==prevDate){if(prevDate&&dayTotal>0)html+=`<tr><td style="text-align:right;font-weight:bold;color:#58a6ff" colspan="2">Day Total</td><td style="font-weight:bold;color:#58a6ff">${dayTotal}</td></tr>`;dayTotal=0;prevDate=r.date;}
+        dayTotal+=r.count;
+        html+=`<tr><td>${r.date}</td><td>${r.period}</td><td style="font-weight:bold">${r.count}</td></tr>`;
+      });
+      if(dayTotal>0)html+=`<tr><td style="text-align:right;font-weight:bold;color:#58a6ff" colspan="2">Day Total</td><td style="font-weight:bold;color:#58a6ff">${dayTotal}</td></tr>`;
+      document.getElementById('qBody').innerHTML=html;
+    }
+    document.getElementById('cCount').textContent=cdata.length;
+    if(cdata.length===0){
+      document.getElementById('cBody').innerHTML='<tr><td colspan="4" class="empty">No detections yet</td></tr>';
+    }else{
+      let html='';
+      cdata.slice().reverse().forEach((r,i)=>{html+=`<tr><td>${i+1}</td><td>${r.timestamp}</td><td>#${r.track_id}</td><td>${r.location}</td></tr>`;});
+      document.getElementById('cBody').innerHTML=html;
+    }
+  }catch(e){console.error(e)}
+}
+loadAll();
+setInterval(loadAll,5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bicycle Counter Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;-webkit-text-size-adjust:100%}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 16px;display:flex;align-items:center;gap:10px}
+header h1{font-size:1rem;color:#58a6ff;white-space:nowrap}
+header .dot{width:10px;height:10px;border-radius:50%;background:#f85149;flex-shrink:0}
+header .dot.ok{background:#3fb950}
+header .meta{margin-left:auto;font-size:0.7rem;color:#8b949e;white-space:nowrap}
+header .db-btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;text-decoration:none;white-space:nowrap}
+header .db-btn:hover{background:#161b22;border-color:#58a6ff}
+.container{padding:8px;max-width:100%}
+.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;margin-bottom:8px}
+.video-panel img{width:100%;height:auto;display:block;object-fit:contain;background:#000}
+.video-panel .badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:4px;font-size:0.7rem;color:#3fb950;font-weight:600}
+.big-count{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:center;margin-bottom:8px}
+.big-count .num{font-size:3.5rem;font-weight:800;color:#58a6ff;line-height:1}
+.big-count .lbl{font-size:0.75rem;color:#8b949e;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
+.stat-card .label{font-size:0.65rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px}
+.stat-card .value{font-size:1.5rem;font-weight:700;margin-top:2px}
+.stat-card .sub{font-size:0.7rem;color:#6e7681;margin-top:1px}
+.stat-card.count .value{color:#58a6ff}
+.stat-card.fps .value{color:#3fb950}
+.stat-card.active .value{color:#d2a8ff}
+.stat-card.total .value{color:#f0883e}
+.charts-row{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px}
+.chart-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
+.chart-card h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
+.events-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
+.events-panel h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:0.8rem}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid #30363d;color:#8b949e;font-size:0.7rem}
+td{padding:6px 8px;border-bottom:1px solid #21262d}
+.no-data{color:#484f58;font-style:italic;text-align:center;padding:20px}
+@media(min-width:768px){
+  .container{max-width:1400px;margin:0 auto;padding:16px}
+  .top-row{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px}
+  .video-panel{margin-bottom:0}
+  .big-count{display:none}
+  .stats-grid{grid-template-columns:1fr;gap:12px;margin-bottom:0}
+  .charts-row{grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .stat-card .value{font-size:2rem}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="statusDot"></div>
+  <h1>Bicycle Counter</h1>
+  <a href="/database" class="db-btn">Database</a>
+  <span class="meta" id="versionTag" style="color:#58a6ff;margin-left:4px">v{{ version }}</span>
+  <span class="meta" id="lastUpdate"></span>
+</header>
+<div class="container">
+  <div class="big-count">
+    <div class="num" id="countValMob">0</div>
+    <div class="lbl">Bicycles Detected</div>
+  </div>
+
+  <div class="top-row">
+    <div class="video-panel">
+      <img id="videoFeed" src="/video" alt="Camera feed" onerror="this.style.background='#000'">
+      <div class="badge" id="fpsBadge">-- FPS</div>
+    </div>
+    <div class="stats-panel">
+      <div class="stat-card count">
+        <div class="label">Today</div>
+        <div class="value" id="countVal">0</div>
+        <div class="sub">Bicycles counted today</div>
+      </div>
+      <div class="stat-card total">
+        <div class="label">All Time</div>
+        <div class="value" id="allTimeVal">0</div>
+        <div class="sub">Total since deployment</div>
+      </div>
+      <div class="stat-card fps">
+        <div class="label">Pipeline FPS</div>
+        <div class="value" id="fpsVal">0</div>
+        <div class="sub">Frames per second</div>
+      </div>
+      <div class="stat-card active">
+        <div class="label">Active Tracks</div>
+        <div class="value" id="activeVal">0</div>
+        <div class="sub">Currently tracked bicycles</div>
+      </div>
+<div class="card" style="margin: 20px 0; padding: 20px; background: #222; color: #fff; border-radius: 8px;">
+  <h3 style="margin-top: 0;">⚙️ Live Counting Settings</h3>
+  
+  <form id="liveConfigForm">
+    <div style="margin-bottom: 15px;">
+      <label for="input_line_y" style="display: block; margin-bottom: 5px;">Counting Line Y Position (px):</label>
+      <input type="number" id="input_line_y" placeholder="e.g. 240" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #333; color: white;">
+    </div>
+
+    <div style="margin-bottom: 15px;">
+      <label for="input_min_conf" style="display: block; margin-bottom: 5px;">AI Min Confidence (0.1 - 1.0):</label>
+      <input type="number" step="0.05" min="0.1" max="1.0" id="input_min_conf" placeholder="e.g. 0.45" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #333; color: white;">
+    </div>
+
+    <button type="submit" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+      Save Live Settings
+    </button>
+  </form>
+</div>
+ </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card count">
+      <div class="label">Today</div>
+      <div class="value" id="todayVal">0</div>
+    </div>
+    <div class="stat-card total">
+      <div class="label">All Time</div>
+      <div class="value" id="allTimeVal2">0</div>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Crossing Timeline</h3>
+      <canvas id="timelineChart"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>15-Min Breakdown</h3>
+      <canvas id="quarterlyChart"></canvas>
+    </div>
+  </div>
+  <div class="events-panel">
+    <h3>Recent Detections</h3>
+    <table>
+      <thead><tr><th>Time</th><th>Track ID</th></tr></thead>
+      <tbody id="eventsBody"><tr><td colspan="2" class="no-data">No detections yet</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<script>
+const timelineData={labels:[],datasets:[{label:'Crossings',data:[],borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true,tension:0.3,pointRadius:3}]};
+const timelineChart=new Chart(document.getElementById('timelineChart'),{type:'line',data:timelineData,options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{beginAtZero:true,ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}});
+
+const quarterlyChart=new Chart(document.getElementById('quarterlyChart'),{
+  type:'bar',data:{labels:[],datasets:[{label:'Bicycles',data:[],backgroundColor:'rgba(88,166,255,0.7)',borderRadius:4}]},
+  options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b949e',font:{size:9},maxRotation:45},grid:{display:false}},y:{beginAtZero:true,ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}
+});
+
+let prevCount=0;
+async function fetchStats(){
+  try{
+    const r=await fetch('/stats');
+    const d=await r.json();
+    if(d.error)return;
+    const todayTotal=d.today_total||d.bicycle_count;
+    const allTime=d.all_time_total||d.bicycle_count;
+    document.getElementById('countVal').textContent=todayTotal;
+    document.getElementById('countValMob').textContent=todayTotal;
+    document.getElementById('todayVal').textContent=todayTotal;
+    document.getElementById('allTimeVal').textContent=allTime;
+    document.getElementById('allTimeVal2').textContent=allTime;
+    document.getElementById('fpsVal').textContent=d.fps;
+    document.getElementById('activeVal').textContent=d.active_tracks;
+    document.getElementById('fpsBadge').textContent=d.fps+' FPS';
+    document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
+    document.getElementById('statusDot').className=d.fps>0?'dot ok':'dot';
+    if(todayTotal!==prevCount){
+      timelineData.labels.push('');
+      timelineData.datasets[0].data.push(todayTotal);
+      if(timelineData.labels.length>30){timelineData.labels.shift();timelineData.datasets[0].data.shift();}
+      timelineChart.update();
+      prevCount=todayTotal;
+    }
+    if(d.quarterly&&d.quarterly.length>0){
+      quarterlyChart.data.labels=d.quarterly.map(q=>q.label);
+      quarterlyChart.data.datasets[0].data=d.quarterly.map(q=>q.count);
+      quarterlyChart.update();
+    }
+    const tbody=document.getElementById('eventsBody');
+    if(d.events&&d.events.length>0){
+      tbody.innerHTML=d.events.slice().reverse().map(e=>`<tr><td>${e.time_str}</td><td>#${e.track_id}</td></tr>`).join('');
+    }else{
+      tbody.innerHTML='<tr><td colspan="2" class="no-data">No detections yet</td></tr>';
+    }
+  }catch(e){}
+}
+setInterval(fetchStats,500);
+fetchStats();
+</script>
+
+<script>
+document.getElementById('liveConfigForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); 
+
+    
+    const lineY = document.getElementById('input_line_y').value;
+    const minConf = document.getElementById('input_min_conf').value;
+
+    
+    const payload = {};
+    if (lineY !== "") payload.crossing_line_y = parseInt(lineY);
+    if (minConf !== "") payload.min_confidence = parseFloat(minConf);
+
+    if (Object.keys(payload).length === 0) {
+        alert("Please enter at least one value to update!");
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            alert("✅ Settings updated successfully!");
+        } else {
+            alert("❌ Error saving settings.");
+        }
+    } catch (err) {
+        alert("❌ Connection error to the server.");
+    }
+});
+</script>
+</body>
+</html>
