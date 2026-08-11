@@ -60,7 +60,7 @@ def compute_iou(a, b):
 
 class Track:
     
-    __slots__ = ("id", "cx", "cy", "prev_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score")
+    __slots__ = ("id", "cx", "cy", "prev_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score", "class_name")
     
     def __init__(self, tid, cx, cy, bbox, confidence):
         self.id = tid
@@ -74,7 +74,9 @@ class Track:
         self.counted = False
         self.best_frame = None  
         self.best_score = 0.0   
+        self.class_name="vehicle"
 
+        
 class Tracker:
     def __init__(self):
         self.tracks = []
@@ -113,17 +115,14 @@ class Tracker:
                 track.last_seen = now
                 
                 matched.append({
-                    "track_id": track.id, 
-                    "cx": track.cx, 
-                    "cy": track.cy,
-                    "prev_cy": track.prev_cy,  
-                    "bbox": det["bbox"], 
-                    "bbox_xyxy": det["bbox_xyxy"],
-                    "confidence": track.confidence, 
-                    "counted": track.counted,
-                    "track_obj": track         
+                    "track_id": track.id, "cx": track.cx, "cy": track.cy,
+                    "prev_cy": track.prev_cy, "bbox": det["bbox"], "bbox_xyxy": det["bbox_xyxy"],
+                    "confidence": track.confidence, "counted": track.counted,
+                    "class_id": det.get("class_id"), "class_name": det.get("class_name"),
+                    "track_obj": track
                 })
 
+        # 2. Rejestracja nowych pojazdów
         for j, det in enumerate(detections):
             if j in used:
                 continue
@@ -131,18 +130,14 @@ class Tracker:
             self._next_id += 1
             self.tracks.append(t)
             matched.append({
-                "track_id": t.id, 
-                "cx": t.cx, 
-                "cy": t.cy,
-                "prev_cy": t.prev_cy,
-                "bbox": det["bbox"], 
-                "bbox_xyxy": det["bbox_xyxy"],
-                "confidence": t.confidence, 
-                "counted": False,
+                "track_id": t.id, "cx": t.cx, "cy": t.cy,
+                "prev_cy": t.prev_cy, "bbox": det["bbox"], "bbox_xyxy": det["bbox_xyxy"],
+                "confidence": t.confidence, "counted": False,
+                "class_id": det.get("class_id"), "class_name": det.get("class_name"),
                 "track_obj": t
             })
-        return matched
 
+        return matched
 
 # ---------------------------------------------------------------------------
 # Shared state
@@ -175,7 +170,7 @@ def draw_osd(img_pil, detections, total_count):
         draw.line([(0, line_y), (width, line_y)], fill="red", width=3)
 
 
-    draw.text((10, 10), f"Bicycles: {total_count}", fill="yellow")
+    draw.text((10, 10), f"Vehicles: {total_count}", fill="yellow")
     for det in detections:
         x, y, w, h = det["bbox"]
         draw.rectangle([x, y, x + w, y + h], outline="lime", width=2)
@@ -270,26 +265,44 @@ def main():
             consecutive_failures = 0
             state.camera_ok = True
             current_conf = CFG.get("model", {}).get("min_confidence", CFG.get("min_confidence", 0.45))
-            results = model(frame, verbose=False, conf=current_conf)
+            results = model(frame, verbose=False, conf=current_conf)#wykryte obiekty przez model
             raw_dets = []
 
-            for r in results:
+            model_cfg = CFG.get("model", {})
+            target_classes = model_cfg.get("target_classes", {0: "e-scooter", 1: "bicycle"})
+
+            
+            for r in results: # ta pętla sprawdza wszystkie obiekty wykryte przez model
                 for box in r.boxes:
-                    if int(box.cls[0]) != CFG["bicycle_class_id"]:
+                    class_id = int(box.cls[0]) #pobranie numeru obiektu(0:e-scooter,1:bike) i zamiana na int
+                    
+
+                    # Pobieramy nazwę klasy, sprawdzając int oraz str (zabezpieczenie przed YAML)
+                    class_name = target_classes.get(class_id) or target_classes.get(str(class_id))
+
+                    # Jeśli wykryty obiekt nie jest ani rowerem, ani hulajnogą – pomijamy
+                    if class_name is None:
                         continue
-                    conf = float(box.conf[0])
+
+                    conf = float(box.conf[0]) # aktualna pewność AI
                     bx1, by1, bx2, by2 = map(float, box.xyxy[0])
-                    raw_dets.append({
-                        "cx": (bx1 + bx2) / 2.0, "cy": (by1 + by2) / 2.0,
+
+                    raw_dets.append({ #słownik
+                        "cx": (bx1 + bx2) / 2.0, 
+                        "cy": (by1 + by2) / 2.0,
                         "bbox": (bx1, by1, bx2 - bx1, by2 - by1),
-                        "bbox_xyxy": (bx1, by1, bx2, by2), "confidence": conf,
+                        "bbox_xyxy": (bx1, by1, bx2, by2), 
+                        "confidence": conf,
+                        "class_id": class_id,         # DODANE: id klasy (0 lub 1)
+                        "class_name": class_name      # DODANE: czytelna nazwa ('e-scooter' / 'bicycle')
                     })
+
                     state.total_detections += 1
                     state.confidence_values.append(conf)
 
-            detections = tracker.update(raw_dets)
+            detections = tracker.update(raw_dets) # powiedzenie trackerowi jaki obiekt jest śledzony
             active_ids = set()
-            new_bikes = []
+            new_vehicles = []
             now_check = time.time()
 
             line_y = CFG.get("tracker", {}).get("crossing_line_y", CFG.get("crossing_line_y", 240))
@@ -298,14 +311,19 @@ def main():
 
             use_line = CFG.get("tracker", {}).get("use_crossing_line", False)
 
+            
+            #rysowane są ramki, wybierane zdjęcia, sprawdzanie przekroczenia linii i rejestracja nowych pojazdów
             for det in detections:
-                tid = det["track_id"]
-                active_ids.add(tid)
+                # detections to lista wykrytych obiektów 
+                tid = det["track_id"] # pobranie identyfikatora pojazdu z trackera
+                active_ids.add(tid)# dodanie identyfikatora do zbioru aktywnych obiektów
 
-                track_obj = det.get("track_obj")
+                track_obj = det.get("track_obj") # pobranie teczki pojazdu
                 if not track_obj:
                     continue
 
+                class_name = det.get("class_name","vehicle")
+                track_obj.class_name = class_name
                 bx1, by1, bx2, by2 = det["bbox_xyxy"]
                 w, h = bx2 - bx1, by2 - by1
 
@@ -319,7 +337,8 @@ def main():
                     draw_box = ImageDraw.Draw(frame_with_box)
                     draw_box.rectangle([bx1, by1, bx2, by2], outline="lime", width=3)
                     draw_box.rectangle([bx1, by1 - 18, bx1 + 80, by1], fill="black")
-                    draw_box.text((bx1 + 2, by1 - 16), f"#{tid} {det['confidence']:.0%}", fill="lime")
+                    label_text = f"{class_name} #{tid} {det['confidence']:.0%}"
+                    draw_box.text((bx1 + 2, by1 - 16), label_text, fill="lime")
                     
                     track_obj.best_frame = frame_with_box
 
@@ -340,11 +359,12 @@ def main():
                         track_obj.counted = True
                         state.bicycle_count += 1
 
-                        new_bikes.append({
+                        new_vehicles.append({
                             "track_id": tid,
+                            "vehicle_type": class_name,
                             "image": track_obj.best_frame or img_pil
                         })
-                        LOG.info("NEW BIKE #%d detected | Total: %d", tid, state.bicycle_count)
+                        LOG.info("NEW VEHICLE (%s) #%d detected | Total: %d", class_name.upper(), tid, state.bicycle_count)
 
             state.counted_positions = [(x, y, t) for x, y, t in state.counted_positions if now_check - t < CFG["dedup_ttl"]]
 
@@ -365,16 +385,24 @@ def main():
             with state.lock:
                 state.latest_jpeg = jpeg_buf.getvalue()
 
-            for det in new_bikes:
+            for det in new_vehicles:
+                v_type = det.get("vehicle_type", "bike")
                 ts_str = time.strftime("%H-%M-%S")
-                fname = f"bike_{ts_str}_id{det['track_id']}.jpg"
+                fname = f"{v_type}_{ts_str}_id{det['track_id']}.jpg"
                 
-                # Zapisujemy zachowaną najlepszą klatkę!
+                
                 save_img = det["image"]
                 save_img.save(os.path.join(SCREENSHOT_DIR, fname), format="JPEG", quality=90)
                 
                 iso_ts = datetime.now().isoformat(timespec="seconds")
-                db.record_crossing(location_id, iso_ts, int(det["track_id"]), device_id=device_id)
+
+                db.record_crossing(
+                    location_id=location_id,
+                    timestamp_str=iso_ts,
+                    track_id=int(det["track_id"]),
+                    device_id=device_id,
+                    vehicle_type=v_type
+                )
                 db.cleanup_screenshots()
     except Exception:
         LOG.exception("Pipeline error")

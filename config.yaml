@@ -23,8 +23,6 @@ log_file: /home/student/CounterProject/bicycle_counter.log
 log_level: INFO
 max_crossing_days: 90
 max_screenshots: 1000
-min_confidence: 0.40
-model_path: /home/student/CounterProject/yolo11n.engine
 track_iou_threshold: 0.15
 track_max_distance: 150
 track_missing_ttl: 3.0
@@ -33,3 +31,9 @@ tracker:
   crossing_line_y: 240
   use_crosing_line: false
 version: '2.0'
+model:
+  path: "best.engine"
+  min_confidence: 0.45
+  target_classes:
+    0: "e-scooter"
+    1: "bicycle"

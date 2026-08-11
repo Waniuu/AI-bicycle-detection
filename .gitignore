@@ -1,8 +1,18 @@
-screenshots/
+# Cache & build
+__pycache__/
+.pytest_cache/
+build/
+*.pyc
+
+# Logs & output data
 *.log
 *.csv
-*.pt
+screenshots/
+runs/
+
+# Weights & Datasets
 *.engine
-*.tar.gz
-__pycache__/
-.venv/
+*.onnx
+*.zip
+
+

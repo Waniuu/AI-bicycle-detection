@@ -79,7 +79,7 @@ class Database:
         finally:
             conn.close()
 
-    def record_crossing(self, location_id, timestamp_str, track_id, device_id=None):
+    def record_crossing(self, location_id, timestamp_str, track_id, device_id=None,vehicle_type='bicycle'):
         if device_id is None:
             device_id = self.get_or_create_device("default")
         dt = datetime.fromisoformat(timestamp_str)
@@ -87,8 +87,8 @@ class Database:
         try:
             cur = conn.cursor()
             cur.execute(
-                "INSERT INTO crossings (device_id, location_id, recorded_at, track_id) VALUES (%s, %s, %s, %s)",
-                (device_id, location_id, dt, track_id),
+                "INSERT INTO crossings (device_id, location_id, recorded_at, track_id, vehicle_type) VALUES (%s, %s, %s, %s, %s)",
+                (device_id, location_id, dt, track_id, vehicle_type),
             )
             cur.execute(
                 """INSERT INTO quarterly_counts

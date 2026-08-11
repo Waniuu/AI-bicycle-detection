@@ -6,6 +6,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DS_DIR="/opt/nvidia/deepstream/deepstream"
 
+
+if [ -n "${SSH_CLIENT:-}" ] && [ "$(date +%Y)" -lt 2026 ]; then
+    SSH_TTY_DEV=$(tty 2>/dev/null || true)
+    if [ -n "$SSH_TTY_DEV" ] && [ -e "$SSH_TTY_DEV" ]; then
+        CLIENT_TIME=$(stat -c %y "$SSH_TTY_DEV" 2>/dev/null || true)
+        if [ -n "$CLIENT_TIME" ]; then
+            sudo date -s "$CLIENT_TIME" >/dev/null 2>&1 || true
+            echo " Time synced from SSH connection: $(date)"
+        fi
+    fi
+fi
+
 export LD_LIBRARY_PATH="${DS_DIR}/lib:/usr/local/cuda-13.2/lib64:${LD_LIBRARY_PATH:-}"
 export GST_PLUGIN_PATH="${DS_DIR}/lib/gst-plugins:${GST_PLUGIN_PATH:-}"
 export PATH="${DS_DIR}/bin:${PATH:-}"
