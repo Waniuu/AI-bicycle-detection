@@ -9,6 +9,8 @@ build/
 *.csv
 screenshots/
 runs/
+Filmiki_testowe/
+Silnik V2/
 
 # Weights & Datasets
 *.engine

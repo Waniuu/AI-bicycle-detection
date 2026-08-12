@@ -27,7 +27,7 @@ fuser -k /dev/video0 2>/dev/null || true
 sleep 0.5
 
 echo "=========================================="
-echo "  Bicycle Counter v2.0"
+echo "  Bicycle Counter v3.0"
 echo "=========================================="
 echo ""
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')

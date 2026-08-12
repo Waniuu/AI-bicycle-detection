@@ -1,39 +1,54 @@
-bicycle_class_id: 1
-camera_brightness: -30
-camera_device: /dev/video0
-camera_fps: 15
-camera_height: 480
-camera_width: 640
-dashboard_host: 0.0.0.0
-dashboard_port: 8080
-db_host: 127.0.0.1
-db_name: bicycle_counter
-db_pass: BikeCount2026!
-db_pool_size: 4
-db_port: 3306
-db_user: bikecounter
-dedup_distance: 120
-dedup_ttl: 5.0
-device_desc: Jetson Orin Nano - Main Unit
-device_name: jetson-orin-01
-keep_screenshots: 950
-location_desc: Main entrance
-location_name: Camera_01
-log_file: /home/student/CounterProject/bicycle_counter.log
-log_level: INFO
-max_crossing_days: 90
-max_screenshots: 1000
-track_iou_threshold: 0.15
-track_max_distance: 150
-track_missing_ttl: 3.0
-track_persist_time: 0.6
-tracker:
-  crossing_line_y: 240
-  use_crosing_line: false
-version: '2.0'
+version: '3.0'
+
+# --- MODEL AI ---
 model:
-  path: "best.engine"
-  min_confidence: 0.45
+  path: "/home/student/CounterProject/Silnik_hul_bike/best.engine"
+  min_confidence: 0.60
   target_classes:
     0: "e-scooter"
     1: "bicycle"
+
+# --- KAMERA ---
+camera_device: /dev/video0
+camera_width: 640
+camera_height: 480
+camera_fps: 15
+camera_brightness: -30
+
+# --- TRACKER I LINIA ZLICZANIA ---
+tracker:
+  crossing_line_y: 240
+  use_crossing_line: true     # Włączone zliczanie na linii (poprawiona literówka)
+
+track_max_distance: 150
+track_missing_ttl: 3.0
+track_persist_time: 0.6
+track_iou_threshold: 0.15
+
+dedup_distance: 120
+dedup_ttl: 5.0
+
+# --- BAZA DANYCH ---
+db_host: 127.0.0.1
+db_port: 3306
+db_user: bikecounter
+db_pass: BikeCount2026!
+db_name: bicycle_counter
+db_pool_size: 4
+
+# --- DASHBOARD WWW ---
+dashboard_host: 0.0.0.0
+dashboard_port: 8080
+
+# --- LOGI I URZĄDZENIE ---
+device_name: jetson-orin-01
+device_desc: Jetson Orin Nano - Main Unit
+location_name: Camera_01
+location_desc: Main entrance
+log_file: /home/student/CounterProject/bicycle_counter.log
+log_level: INFO
+
+# --- RETENCJA DANYCH ---
+max_screenshots: 1000
+keep_screenshots: 950
+max_crossing_days: 90
