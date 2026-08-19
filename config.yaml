@@ -2,31 +2,40 @@ version: '3.0'
 
 # --- MODEL AI ---
 model:
-  path: "/home/student/CounterProject/Silnik_hul_bike/best.engine"
-  min_confidence: 0.60
+  path: "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine"
+  min_confidence: 0.65
   target_classes:
-    0: "e-scooter"
-    1: "bicycle"
+    0: "person"
+    1: "cyclist"
+    2: "e-scooter"
 
 # --- KAMERA ---
 camera_device: /dev/video0
 camera_width: 640
 camera_height: 480
-camera_fps: 15
+camera_fps: 30
 camera_brightness: -30
 
 # --- TRACKER I LINIA ZLICZANIA ---
 tracker:
   crossing_line_y: 240
-  use_crossing_line: true     # Włączone zliczanie na linii (poprawiona literówka)
+  use_crossing_line: true     
 
-track_max_distance: 150
+track_max_distance: 300
 track_missing_ttl: 3.0
 track_persist_time: 0.6
-track_iou_threshold: 0.15
+track_iou_threshold: 0.10
 
-dedup_distance: 120
-dedup_ttl: 5.0
+# --- FILTRY HEURYSTYCZNE ---
+filters:
+  min_width: 30       # Minimalna szerokość obiektu (w pikselach), aby był brany pod uwagę
+  min_height: 30      # Minimalna wysokość obiektu (w pikselach), aby był brany pod uwagę
+  max_width: 641      # Maksymalna szerokość obiektu (w pikselach), aby był brany pod uwagę (domyślnie nieco więcej niż szerokość kamery)
+  max_height: 481     # Maksymalna wysokość obiektu (w pikselach), aby był brany pod uwagę (domyślnie nieco więcej niż wysokość kamery)
+  max_aspect_ratio_scooter: 2.0 # Maksymalny stosunek wysokości do szerokości dla hulajnogi. Obiekty wyższe zostaną odrzucone.
+
+dedup_distance: 150
+dedup_ttl: 3.0
 
 # --- BAZA DANYCH ---
 db_host: 127.0.0.1
@@ -36,9 +45,6 @@ db_pass: BikeCount2026!
 db_name: bicycle_counter
 db_pool_size: 4
 
-# --- DASHBOARD WWW ---
-dashboard_host: 0.0.0.0
-dashboard_port: 8080
 
 # --- LOGI I URZĄDZENIE ---
 device_name: jetson-orin-01
@@ -46,9 +52,12 @@ device_desc: Jetson Orin Nano - Main Unit
 location_name: Camera_01
 location_desc: Main entrance
 log_file: /home/student/CounterProject/bicycle_counter.log
-log_level: INFO
+log_level: DEBUG
 
 # --- RETENCJA DANYCH ---
 max_screenshots: 1000
 keep_screenshots: 950
 max_crossing_days: 90
+# --- DASHBOARD WWW ---
+dashboard_host: "0.0.0.0"
+dashboard_port: 8080

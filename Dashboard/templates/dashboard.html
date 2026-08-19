@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Bicycle Counter Dashboard</title>
+<title>Mobility Counter Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
+/* ... (istniejące style) ... */
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;-webkit-text-size-adjust:100%}
 header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 16px;display:flex;align-items:center;gap:10px}
@@ -15,6 +16,7 @@ header .dot.ok{background:#3fb950}
 header .meta{margin-left:auto;font-size:0.7rem;color:#8b949e;white-space:nowrap}
 header .db-btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;text-decoration:none;white-space:nowrap}
 header .db-btn:hover{background:#161b22;border-color:#58a6ff}
+.time-warning{background:#f85149;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:bold;margin-left:10px;display:none}
 .container{padding:8px;max-width:100%}
 .video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;margin-bottom:8px}
 .video-panel img{width:100%;height:auto;display:block;object-fit:contain;background:#000}
@@ -31,11 +33,16 @@ header .db-btn:hover{background:#161b22;border-color:#58a6ff}
 .stat-card.fps .value{color:#3fb950}
 .stat-card.active .value{color:#d2a8ff}
 .stat-card.total .value{color:#f0883e}
+.badge-type{padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600;display:inline-block}
+.badge-type.bicycle{background:#28a745;color:#fff}
+.badge-type.e-scooter{background:#d2a8ff;color:#161b22}
 .charts-row{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px}
 .chart-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
 .chart-card h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
 .events-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
 .events-panel h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
+.log-panel{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;margin-top:16px;height:300px;overflow-y:auto;font-family:monospace;font-size:0.75rem;white-space:pre-wrap;color:#c9d1d9}
+.log-panel h3{margin-top:0;margin-bottom:8px;font-size:0.75rem;color:#8b949e;font-family:'Segoe UI',system-ui,sans-serif}
 table{width:100%;border-collapse:collapse;font-size:0.8rem}
 th{text-align:left;padding:6px 8px;border-bottom:1px solid #30363d;color:#8b949e;font-size:0.7rem}
 td{padding:6px 8px;border-bottom:1px solid #21262d}
@@ -54,7 +61,8 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
 <body>
 <header>
   <div class="dot" id="statusDot"></div>
-  <h1>Bicycle Counter</h1>
+  <h1>Mobility Counter</h1>
+  <span class="time-warning" id="timeWarning">TIME NOT SYNCED</span>
   <a href="/database" class="db-btn">Database</a>
   <span class="meta" id="versionTag" style="color:#58a6ff;margin-left:4px">v{{ version }}</span>
   <span class="meta" id="lastUpdate"></span>
@@ -70,11 +78,16 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
       <img id="videoFeed" src="/video" alt="Camera feed" onerror="this.style.background='#000'">
       <div class="badge" id="fpsBadge">-- FPS</div>
     </div>
-    <div class="stats-panel">
+    <div class="stats-panel" style="display: flex; flex-direction: column; gap: 12px;">
       <div class="stat-card count">
         <div class="label">Today</div>
-        <div class="value" id="countVal">0</div>
-        <div class="sub">Bicycles counted today</div>
+        <div class="value" id="bikeTodayVal">0</div>
+        <div class="sub">Bicycles Today</div>
+      </div>
+      <div class="stat-card count" style="border-color: #d2a8ff;">
+        <div class="label">Today</div>
+        <div class="value" id="scooterTodayVal" style="color: #d2a8ff;">0</div>
+        <div class="sub">E-Scooters Today</div>
       </div>
       <div class="stat-card total">
         <div class="label">All Time</div>
@@ -137,10 +150,14 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
   <div class="events-panel">
     <h3>Recent Detections</h3>
     <table>
-      <thead><tr><th>Time</th><th>Track ID</th></tr></thead>
-      <tbody id="eventsBody"><tr><td colspan="2" class="no-data">No detections yet</td></tr></tbody>
+      <thead><tr><th>Time</th><th>Type</th><th>Track ID</th></tr></thead>
+      <tbody id="eventsBody"><tr><td colspan="3" class="no-data">No detections yet</td></tr></tbody>
     </table>
   </div>
+    <div class="log-panel" id="logPanel">
+        <h3>Terminal Logs</h3>
+        <pre id="logContent"></pre>
+    </div>
 </div>
 <script>
 const timelineData={labels:[],datasets:[{label:'Crossings',data:[],borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true,tension:0.3,pointRadius:3}]};
@@ -157,24 +174,38 @@ async function fetchStats(){
     const r=await fetch('/stats');
     const d=await r.json();
     if(d.error)return;
-    const todayTotal=d.today_total||d.bicycle_count;
-    const allTime=d.all_time_total||d.bicycle_count;
-    document.getElementById('countVal').textContent=todayTotal;
-    document.getElementById('countValMob').textContent=todayTotal;
-    document.getElementById('todayVal').textContent=todayTotal;
-    document.getElementById('allTimeVal').textContent=allTime;
-    document.getElementById('allTimeVal2').textContent=allTime;
+
+    const bikeToday = d.bike_today || 0;
+    const scooterToday = d.scooter_today || 0;
+    const totalToday = d.today_total || (bikeToday + scooterToday);
+
+    const bikeAllTime = d.bike_all_time || 0;
+    const scooterAllTime = d.scooter_all_time || 0;
+    const totalAllTime = d.all_time_total || (bikeAllTime + scooterAllTime);
+
+    document.getElementById('bikeTodayVal').textContent = bikeToday;
+    document.getElementById('scooterTodayVal').textContent = scooterToday;
+    document.getElementById('countValMob').textContent = totalToday; 
+    document.getElementById('todayVal').textContent = totalToday;
+    document.getElementById('allTimeVal').textContent = totalAllTime;
+    document.getElementById('allTimeVal2').textContent = totalAllTime;
     document.getElementById('fpsVal').textContent=d.fps;
     document.getElementById('activeVal').textContent=d.active_tracks;
     document.getElementById('fpsBadge').textContent=d.fps+' FPS';
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
     document.getElementById('statusDot').className=d.fps>0?'dot ok':'dot';
-    if(todayTotal!==prevCount){
+
+    // Pokaż/ukryj ostrzeżenie o czasie
+    const timeWarning = document.getElementById('timeWarning');
+    if (d.time_synced === false) timeWarning.style.display = 'inline-block';
+    else timeWarning.style.display = 'none';
+
+    if(totalToday!==prevCount){
       timelineData.labels.push('');
-      timelineData.datasets[0].data.push(todayTotal);
+      timelineData.datasets[0].data.push(totalToday);
       if(timelineData.labels.length>30){timelineData.labels.shift();timelineData.datasets[0].data.shift();}
       timelineChart.update();
-      prevCount=todayTotal;
+      prevCount=totalToday;
     }
     if(d.quarterly&&d.quarterly.length>0){
       quarterlyChart.data.labels=d.quarterly.map(q=>q.label);
@@ -183,14 +214,34 @@ async function fetchStats(){
     }
     const tbody=document.getElementById('eventsBody');
     if(d.events&&d.events.length>0){
-      tbody.innerHTML=d.events.slice().reverse().map(e=>`<tr><td>${e.time_str}</td><td>#${e.track_id}</td></tr>`).join('');
+      tbody.innerHTML = d.events.slice().reverse().map(e => {
+        // Dodajemy kolumnę z typem pojazdu
+        const vehicleType = e.vehicle_type || 'bicycle';
+        const typeClass = vehicleType.toLowerCase().replace(' ', '-');
+        return `<tr><td>${e.time_str}</td><td><span class="badge-type ${typeClass}">${vehicleType}</span></td><td>#${e.track_id}</td></tr>`;
+      }).join('');
     }else{
-      tbody.innerHTML='<tr><td colspan="2" class="no-data">No detections yet</td></tr>';
+      tbody.innerHTML='<tr><td colspan="3" class="no-data">No detections yet</td></tr>';
     }
   }catch(e){}
 }
 setInterval(fetchStats,500);
 fetchStats();
+
+async function fetchLogs() {
+    try {
+        const response = await fetch('/api/logs');
+        const text = await response.text();
+        const logContent = document.getElementById('logContent');
+        logContent.textContent = text;
+        const logPanel = document.getElementById('logPanel');
+        logPanel.scrollTop = logPanel.scrollHeight;
+    } catch (e) {
+        console.error("Failed to fetch logs:", e);
+    }
+}
+setInterval(fetchLogs, 2000); // Fetch every 2 seconds
+fetchLogs();
 </script>
 
 <script>

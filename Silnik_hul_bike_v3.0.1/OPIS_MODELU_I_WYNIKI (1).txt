@@ -1,0 +1,20 @@
+============================================================
+DOKUMENTACJA WYTRENOWANEGO MODELU DETEKCJI AI (YOLO11n)
+============================================================
+
+
+1. ROZPOZNAWANE KLASY OBIEKTÓW:
+   - Klasa ID 0: 'person'    -> Pieszy (wykrywany, ignorowany w logice zliczania)
+   - Klasa ID 1: 'bicycle'   -> Rower / Rowerzysta (zliczany)
+   - Klasa ID 2: 'e-scooter' -> Hulajnoga elektryczna (zliczana)
+
+2. KLUCZOWE PLIKI W TYM FOLDERZE:
+   - weights/best.pt   -> NAJLEPSZE wagi modelu (plik do wdrożenia na Jetsona)
+   - weights/last.pt   -> Ostatni punkt zapisu
+   - results.png       -> Wykresy procesu uczenia (straty loss, metryki mAP50)
+   - confusion_matrix.png -> Macierz pomyłek
+
+3. WDROŻENIE NA JETSONIE:
+   cd /home/student/CounterProject/Silnik_hul_bike/
+   yolo export model=best.pt format=engine device=0 half=True
+============================================================

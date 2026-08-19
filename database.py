@@ -5,6 +5,7 @@ Uses connection pooling. Config-driven via config_loader.
 
 import csv
 import io
+import io, time
 import logging
 import os
 from datetime import datetime, timedelta
@@ -23,6 +24,18 @@ class Database:
         if cfg is None:
             from config_loader import load
             cfg = load()
+        
+        # --- SYNCHRONIZACJA CZASU ---
+        # Próba synchronizacji czasu z serwerem NTP przy starcie.
+        # To kluczowe dla urządzeń bez baterii RTC, które resetują zegar do 1970.
+        LOG.info("Attempting to synchronize time with NTP server...")
+        if os.system("sudo timedatectl set-ntp true && sudo systemctl restart systemd-timesyncd") == 0:
+            LOG.info("Time synchronized successfully.")
+
+        # Sprawdzenie czasu bez blokowania - tylko ostrzeżenie w logach.
+        if datetime.now().year < 2024:
+            LOG.warning("System time is incorrect (year < 2024). 'Today' stats will be inaccurate until time is synced.")
+        
         self._cfg = cfg
         self.pool = pooling.MySQLConnectionPool(
             pool_name="bike_pool",
@@ -131,22 +144,42 @@ class Database:
         try:
             cur = conn.cursor()
             today = datetime.now().date()
+            
+            # Zoptymalizowane zapytanie do pobrania wszystkich statystyk za jednym razem
             cur.execute(
-                """SELECT COALESCE(SUM(total_count), 0)
-                   FROM quarterly_counts WHERE location_id=%s AND device_id=%s AND bucket_date=%s""",
+                """SELECT
+                    SUM(CASE WHEN vehicle_type = 'bicycle' THEN 1 ELSE 0 END) as bike_all_time,
+                    SUM(CASE WHEN vehicle_type = 'e-scooter' THEN 1 ELSE 0 END) as scooter_all_time,
+                    SUM(CASE WHEN vehicle_type = 'bicycle' AND DATE(recorded_at) = %s THEN 1 ELSE 0 END) as bike_today,
+                    SUM(CASE WHEN vehicle_type = 'e-scooter' AND DATE(recorded_at) = %s THEN 1 ELSE 0 END) as scooter_today
+                   FROM crossings
+                   WHERE location_id=%s AND device_id=%s""",
+                (today, today, location_id, device_id),
+            )
+            stats = cur.fetchone()
+            bike_all_time, scooter_all_time, bike_today, scooter_today = stats
+
+            # Pobieranie danych kwartalnych w ramach tego samego połączenia
+            cur.execute(
+                """SELECT bucket_hour, bucket_quarter, total_count
+                   FROM quarterly_counts
+                   WHERE location_id=%s AND device_id=%s AND bucket_date=%s
+                   ORDER BY bucket_hour, bucket_quarter""",
                 (location_id, device_id, today),
             )
-            today_total = int(cur.fetchone()[0])
-            cur.execute(
-                """SELECT COALESCE(SUM(total_count), 0)
-                   FROM quarterly_counts WHERE location_id=%s AND device_id=%s""",
-                (location_id, device_id),
-            )
-            all_time_total = int(cur.fetchone()[0])
+            quarterly_data = [
+                {"label": f"{int(h):02d}:{int(q)*15:02d}", "count": int(c)}
+                for h, q, c in cur.fetchall()
+            ]
+
             return {
-                "today_total": today_total,
-                "all_time_total": all_time_total,
-                "quarterly": self.get_today_quarterly(location_id, device_id),
+                "bike_today": int(bike_today or 0),
+                "scooter_today": int(scooter_today or 0),
+                "bike_all_time": int(bike_all_time or 0),
+                "scooter_all_time": int(scooter_all_time or 0),
+                "today_total": int(bike_today or 0) + int(scooter_today or 0),
+                "all_time_total": int(bike_all_time or 0) + int(scooter_all_time or 0),
+                "quarterly": quarterly_data,
             }
         finally:
             conn.close()
@@ -158,15 +191,15 @@ class Database:
         try:
             cur = conn.cursor()
             cur.execute(
-                """SELECT recorded_at, track_id FROM crossings
+                """SELECT recorded_at, track_id, vehicle_type FROM crossings
                    WHERE location_id=%s AND device_id=%s
                    ORDER BY id DESC LIMIT %s""",
                 (location_id, device_id, limit),
             )
             events = []
-            for ts, tid in cur.fetchall():
+            for ts, tid, vtype in cur.fetchall():
                 dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))
-                events.append({"time_str": dt.strftime("%H:%M:%S"), "track_id": str(int(tid))})
+                events.append({"time_str": dt.strftime("%H:%M:%S"), "track_id": str(int(tid)), "vehicle_type": vtype})
             return events
         finally:
             conn.close()

@@ -59,21 +59,20 @@ def compute_iou(a, b):
 
 
 class Track:
-    
     __slots__ = ("id", "cx", "cy", "prev_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score", "class_name")
     
     def __init__(self, tid, cx, cy, bbox, confidence):
         self.id = tid
         self.cx = cx
         self.cy = cy
-        self.prev_cy = cy  
+        self.prev_cy = cy  # Inicjalizacja prev_cy
         self.bbox = bbox
         self.confidence = confidence
         self.last_seen = time.time()
         self.created_at = time.time()
         self.counted = False
-        self.best_frame = None  
-        self.best_score = 0.0   
+        self.best_frame = None  # Inicjalizacja best_frame
+        self.best_score = 0.0   # Inicjalizacja best_score
         self.class_name="vehicle"
 
         
@@ -147,6 +146,7 @@ class SharedState:
         self.lock = threading.Lock()
         self.frame_count = 0
         self.bicycle_count = 0
+        self.scooter_count = 0
         self.fps = 0.0
         self.active_tracks = set()
         self.total_detections = 0
@@ -231,7 +231,9 @@ def main():
     state.camera_ok = True
     LOG.info("Camera opened: %dx%d", int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
+    # Statyczny import ujednoliconego serwera dashboardu
     import dashboard_server
+    LOG.info("Loading dashboard module: dashboard_server.py")
     dashboard_server.set_shared_state(state)
     dashboard_server.set_db(db, location_id, device_id)
     dashboard_server.set_config(CFG)
@@ -264,34 +266,43 @@ def main():
 
             consecutive_failures = 0
             state.camera_ok = True
-            current_conf = CFG.get("model", {}).get("min_confidence", CFG.get("min_confidence", 0.45))
-            results = model(frame, verbose=False, conf=current_conf)#wykryte obiekty przez model
+           # Próg pewności (0.40 zgodnie z wykresem F1-curve)
+            current_conf = 0.40
+            results = model(
+                frame, verbose=False, conf=current_conf
+            )  # Wykrycie obiektów
+
             raw_dets = []
+            person_detections_in_frame = []
 
-            model_cfg = CFG.get("model", {})
-            target_classes = model_cfg.get("target_classes", {0: "e-scooter", 1: "bicycle"})
-
-            
-            for r in results: # ta pętla sprawdza wszystkie obiekty wykryte przez model
+            for r in results:
                 for box in r.boxes:
-                    class_id = int(box.cls[0]) #pobranie numeru obiektu(0:e-scooter,1:bike) i zamiana na int
-                    
+                    class_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    bbox_xyxy = box.xyxy[0].cpu().numpy()
+                    bx1, by1, bx2, by2 = bbox_xyxy
 
-                    # Pobieramy nazwę klasy, sprawdzając int oraz str (zabezpieczenie przed YAML)
-                    class_name = target_classes.get(class_id) or target_classes.get(str(class_id))
+                    # Pobieramy prawdziwą nazwę klasy wprost z silnika best.engine
+                    class_name = model.names.get(class_id, "unknown")
 
-                    # Jeśli wykryty obiekt nie jest ani rowerem, ani hulajnogą – pomijamy
-                    if class_name is None:
+                    # Odrzucamy ludzi – nie trafiają do trackera ani na nagranie
+                    if class_name == "person":
+                        person_detections_in_frame.append(
+                            {"bbox_xyxy": bbox_xyxy, "confidence": conf}
+                        )
+                        LOG.debug("Ignorowanie pieszego (conf: %.2f)", conf)
                         continue
 
-                    conf = float(box.conf[0]) # aktualna pewność AI
-                    bx1, by1, bx2, by2 = map(float, box.xyxy[0])
+                    # Przetwarzamy wyłącznie rowerzystów i hulajnogi
+                    if class_name not in ["cyclist", "e-scooter"]:
+                        continue
 
-                    raw_dets.append({ #słownik
+                    # Dodajemy wszystkie docelowe obiekty (rowery, hulajnogi, LUDZI) do dalszego przetwarzania
+                    raw_dets.append({
                         "cx": (bx1 + bx2) / 2.0, 
                         "cy": (by1 + by2) / 2.0,
                         "bbox": (bx1, by1, bx2 - bx1, by2 - by1),
-                        "bbox_xyxy": (bx1, by1, bx2, by2), 
+                        "bbox_xyxy": bbox_xyxy, 
                         "confidence": conf,
                         "class_id": class_id,         # DODANE: id klasy (0 lub 1)
                         "class_name": class_name      # DODANE: czytelna nazwa ('e-scooter' / 'bicycle')
@@ -322,29 +333,65 @@ def main():
                 if not track_obj:
                     continue
 
-                class_name = det.get("class_name","vehicle")
-                track_obj.class_name = class_name
+                det_class_name = det.get("class_name", "vehicle")
                 bx1, by1, bx2, by2 = det["bbox_xyxy"]
                 w, h = bx2 - bx1, by2 - by1
-
-               
+                
                 current_score = det["confidence"] * (w * h)
+                
+                # Aktualizujemy klasę i najlepszą klatkę
                 if current_score > track_obj.best_score:
                     track_obj.best_score = current_score
-
-                  
+                    track_obj.class_name = det_class_name
+                    
                     frame_with_box = img_pil.copy()
                     draw_box = ImageDraw.Draw(frame_with_box)
                     draw_box.rectangle([bx1, by1, bx2, by2], outline="lime", width=3)
                     draw_box.rectangle([bx1, by1 - 18, bx1 + 80, by1], fill="black")
-                    label_text = f"{class_name} #{tid} {det['confidence']:.0%}"
+                    label_text = f"{det_class_name} #{tid} {det['confidence']:.0%}"
                     draw_box.text((bx1 + 2, by1 - 16), label_text, fill="lime")
-                    
                     track_obj.best_frame = frame_with_box
+                
+                # Pobieramy zapisaną, ustabilizowaną klasę z obiektu:
+                class_name = track_obj.class_name
 
-           
+                # --- FILTR MINIMALNEGO ROZMIARU ---
+                # Odrzucamy obiekty, które są zbyt małe, aby były pojazdami.
+                # To skutecznie eliminuje małe, błędne detekcje (np. ręce).
+                filters_cfg = CFG.get("filters", {})
+                min_w = filters_cfg.get("min_width", 25)
+                min_h = filters_cfg.get("min_height", 25)
+                if w < min_w or h < min_h:
+                    continue
+
+                # --- FILTR MAKSYMALNEGO ROZMIARU ---
+                # Odrzucamy obiekty, które są zbyt duże, aby były pojazdami,
+                # np. zasłaniające większość obiektywu (ręka, rękaw itp.)
+                max_w = filters_cfg.get("max_width", CFG["camera_width"] + 1)
+                max_h = filters_cfg.get("max_height", CFG["camera_height"] + 1)
+                if w > max_w or h > max_h:
+                    LOG.debug("Filtered out object due to excessive size (w=%d, h=%d)", w, h)
+                    continue
+
+
+                # --- FILTR PROPORCJI DLA HULAJNÓG (HEURYSTYKA) ---
+                # Jeśli obiekt jest sklasyfikowany jako hulajnoga, ale ma proporcje człowieka,
+                # to prawdopodobnie jest to błędna klasyfikacja.
+                if class_name == "e-scooter":
+                    max_ar_scooter = filters_cfg.get("max_aspect_ratio_scooter", 2.0)
+                    if (h / w) > max_ar_scooter:
+                        LOG.debug("Filtered out potential misclassified e-scooter (aspect ratio %.2f > %.2f)", (h / w), max_ar_scooter)
+                        continue # Pomijamy ten obiekt
+
+                # --- FILTR STABILNOŚCI ŚLEDZENIA (PERSISTENCE) ---
+                # Obiekt musi być śledzony przez określony czas, zanim zostanie zliczony.
+                # To odrzuca chwilowe, przypadkowe detekcje.
+                if now_check - track_obj.created_at < CFG["track_persist_time"]:
+                    continue
+
                 if not track_obj.counted:
                     should_count = False
+
 
                     if use_line:
                         was_above_or_near = track_obj.prev_cy < (line_y + 50)
@@ -357,14 +404,22 @@ def main():
 
                     if should_count:
                         track_obj.counted = True
-                        state.bicycle_count += 1
+
+                        
+                        if class_name == "cyclist":
+                            state.bicycle_count += 1
+                            LOG.info("NEW CYCLIST #%d detected | Total cyclists: %d", tid, state.bicycle_count)
+                        elif class_name == "e-scooter":
+                            state.scooter_count += 1
+                            LOG.info("NEW E-SCOOTER #%d detected | Total scooters: %d", tid, state.scooter_count)
+                        else:
+                            LOG.warning("Counted unknown vehicle type: %s", class_name)
 
                         new_vehicles.append({
                             "track_id": tid,
                             "vehicle_type": class_name,
                             "image": track_obj.best_frame or img_pil
                         })
-                        LOG.info("NEW VEHICLE (%s) #%d detected | Total: %d", class_name.upper(), tid, state.bicycle_count)
 
             state.counted_positions = [(x, y, t) for x, y, t in state.counted_positions if now_check - t < CFG["dedup_ttl"]]
 
@@ -387,8 +442,9 @@ def main():
 
             for det in new_vehicles:
                 v_type = det.get("vehicle_type", "bike")
-                ts_str = time.strftime("%H-%M-%S")
-                fname = f"{v_type}_{ts_str}_id{det['track_id']}.jpg"
+                # Zmieniono format nazwy pliku, aby zawierał pełną datę i godzinę na początku
+                ts_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                fname = f"{ts_str}_{v_type}_id{det['track_id']}.jpg"
                 
                 
                 save_img = det["image"]

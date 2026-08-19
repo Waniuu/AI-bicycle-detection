@@ -1,0 +1,15 @@
+train: train/images
+val: valid/images
+test: test/images
+nc: 3
+names:
+- person
+- cyclist
+- e-scooter
+roboflow:
+  workspace: kamil-54y6z
+  project: bicycle_counter
+  version: 2
+  license: Private
+  url: https://app.roboflow.com/kamil-54y6z/bicycle_counter/2
+path: /kaggle/input/datasets/kamil333/licznik-dataset

@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 build/
 *.pyc
+DeepStream-Yolo/
+*.so
 
 # Logs & output data
 *.log
