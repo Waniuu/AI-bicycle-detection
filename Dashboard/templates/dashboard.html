@@ -6,7 +6,6 @@
 <title>Mobility Counter Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-/* ... (istniejące style) ... */
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;-webkit-text-size-adjust:100%}
 header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 16px;display:flex;align-items:center;gap:10px}
@@ -17,45 +16,53 @@ header .meta{margin-left:auto;font-size:0.7rem;color:#8b949e;white-space:nowrap}
 header .db-btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;text-decoration:none;white-space:nowrap}
 header .db-btn:hover{background:#161b22;border-color:#58a6ff}
 .time-warning{background:#f85149;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:bold;margin-left:10px;display:none}
-.container{padding:8px;max-width:100%}
-.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;margin-bottom:8px}
+
+.container{padding:16px;max-width:1400px;margin:0 auto}
+.top-row{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-bottom:16px;align-items:start}
+
+.left-column{display:flex;flex-direction:column;gap:16px}
+.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}
 .video-panel img{width:100%;height:auto;display:block;object-fit:contain;background:#000}
 .video-panel .badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:4px;font-size:0.7rem;color:#3fb950;font-weight:600}
-.big-count{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:center;margin-bottom:8px}
-.big-count .num{font-size:3.5rem;font-weight:800;color:#58a6ff;line-height:1}
-.big-count .lbl{font-size:0.75rem;color:#8b949e;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+
+.log-panel{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;height:240px;overflow-y:auto;font-family:monospace;font-size:0.75rem;white-space:pre-wrap;color:#c9d1d9}
+.log-panel h3{margin-top:0;margin-bottom:8px;font-size:0.75rem;color:#8b949e;font-family:'Segoe UI',system-ui,sans-serif}
+
+.right-column{display:flex;flex-direction:column;gap:12px}
+.card-settings{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+.card-settings h3{margin-top:0;margin-bottom:12px;font-size:0.85rem;color:#e0e0e0}
+.form-group{margin-bottom:10px}
+.form-group label{display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.75rem;color:#8b949e}
+.form-group span.val{color:#58a6ff;font-weight:bold}
+.form-group input[type="range"]{width:100%;cursor:pointer;accent-color:#238636}
+.btn-save{width:100%;padding:8px;background:#238636;color:white;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:0.8rem;margin-top:4px}
+.btn-save:hover{background:#2ea043}
+
 .stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
 .stat-card .label{font-size:0.65rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px}
-.stat-card .value{font-size:1.5rem;font-weight:700;margin-top:2px}
+.stat-card .value{font-size:1.6rem;font-weight:700;margin-top:2px}
 .stat-card .sub{font-size:0.7rem;color:#6e7681;margin-top:1px}
-.stat-card.count .value{color:#58a6ff}
-.stat-card.fps .value{color:#3fb950}
-.stat-card.active .value{color:#d2a8ff}
+.stat-card.bike .value{color:#58a6ff}
+.stat-card.scooter .value{color:#d2a8ff}
 .stat-card.total .value{color:#f0883e}
-.badge-type{padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600;display:inline-block}
-.badge-type.bicycle{background:#28a745;color:#fff}
-.badge-type.e-scooter{background:#d2a8ff;color:#161b22}
-.charts-row{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px}
+.stat-card.fps .value{color:#3fb950}
+.stat-card.active .value{color:#79c0ff}
+
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .chart-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
 .chart-card h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
-.events-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
+
+.badge-type{padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600;display:inline-block}
+.badge-type.bicycle,.badge-type.cyclist{background:#28a745;color:#fff}
+.badge-type.e-scooter{background:#d2a8ff;color:#161b22}
+
+.events-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:16px}
 .events-panel h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
-.log-panel{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;margin-top:16px;height:300px;overflow-y:auto;font-family:monospace;font-size:0.75rem;white-space:pre-wrap;color:#c9d1d9}
-.log-panel h3{margin-top:0;margin-bottom:8px;font-size:0.75rem;color:#8b949e;font-family:'Segoe UI',system-ui,sans-serif}
+
 table{width:100%;border-collapse:collapse;font-size:0.8rem}
 th{text-align:left;padding:6px 8px;border-bottom:1px solid #30363d;color:#8b949e;font-size:0.7rem}
 td{padding:6px 8px;border-bottom:1px solid #21262d}
 .no-data{color:#484f58;font-style:italic;text-align:center;padding:20px}
-@media(min-width:768px){
-  .container{max-width:1400px;margin:0 auto;padding:16px}
-  .top-row{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px}
-  .video-panel{margin-bottom:0}
-  .big-count{display:none}
-  .stats-grid{grid-template-columns:1fr;gap:12px;margin-bottom:0}
-  .charts-row{grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-  .stat-card .value{font-size:2rem}
-}
 </style>
 </head>
 <body>
@@ -67,73 +74,169 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
   <span class="meta" id="versionTag" style="color:#58a6ff;margin-left:4px">v{{ version }}</span>
   <span class="meta" id="lastUpdate"></span>
 </header>
+
 <div class="container">
-  <div class="big-count">
-    <div class="num" id="countValMob">0</div>
-    <div class="lbl">Bicycles Detected</div>
-  </div>
-
   <div class="top-row">
-    <div class="video-panel">
-      <img id="videoFeed" src="/video" alt="Camera feed" onerror="this.style.background='#000'">
-      <div class="badge" id="fpsBadge">-- FPS</div>
+    <!-- Lewa strona: Wideo + Terminal logów -->
+    <div class="left-column">
+      <div class="video-panel">
+        <img id="videoFeed" src="/video" alt="Camera feed" onerror="this.style.background='#000'">
+        <div class="badge" id="fpsBadge">-- FPS</div>
+      </div>
+
+      <div class="log-panel" id="logPanel">
+        <h3>Terminal Logs</h3>
+        <pre id="logContent"></pre>
+      </div>
     </div>
-    <div class="stats-panel" style="display: flex; flex-direction: column; gap: 12px;">
-      <div class="stat-card count">
-        <div class="label">Today</div>
+
+    <!-- Prawa strona: 1. Kalibracja na górze, 2. Ustawienia Live pod nią, 3. OSD, 4. Statystyki -->
+    <div class="right-column">
+      
+      <!-- 1. Calibration & Testing -->
+      <div class="card-settings">
+        <h3>🔬 Calibration & Testing</h3>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button type="button" id="btnRecordSample" class="btn-save" style="background: #1f6feb; margin-top: 0;">Record 10s Sample</button>
+          
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="checkCalibMode" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="checkCalibMode" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Calibration Loopback Mode</label>
+          </div>
+
+          <div id="calibPlaybackControls" style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+            <button type="button" id="btnPrevFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏪ -1 Frame</button>
+            <button type="button" id="btnPlayPause" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏯️ Play/Pause</button>
+            <button type="button" id="btnNextFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏩ +1 Frame</button>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <input type="range" id="calibScrubber" min="0" value="0" style="width: 100%; cursor: pointer;">
+            <div style="font-size: 0.75rem; color: #8b949e;">Frame: <span id="calibFrameLabel">0 / 0</span></div>
+          </div>
+
+          <div style="border-top: 1px dashed #30363d; margin-top: 8px; padding-top: 8px;">
+            <label style="font-size: 0.75rem; color: #8b949e; display: block; margin-bottom: 4px;">Upload Custom test video (MP4/AVI):</label>
+            <input type="file" id="calibUploadInput" accept="video/mp4,video/avi" style="font-size: 0.75rem; color: #8b949e; display: block; width: 100%;">
+            <button type="button" id="btnUploadVideo" class="btn-save" style="background: #238636; margin-top: 4px; padding: 4px 8px; font-size: 0.75rem; width: auto; display: inline-block;">Upload Video</button>
+          </div>
+
+          <div style="font-size: 0.75rem; color: #8b949e; border-top: 1px dashed #30363d; padding-top: 8px;">
+            Status: <span id="calibStatus" style="font-weight: bold; color: #58a6ff;">Live camera</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Live Counting Settings -->
+      <div class="card-settings">
+        <h3>⚙️ Live Counting Settings</h3>
+        <form id="liveConfigForm">
+          <div class="form-group">
+            <label>Line Y Position: <span class="val" id="lbl_line_y">240px</span></label>
+            <input type="range" id="input_line_y" min="0" max="720" value="240">
+          </div>
+
+          <div class="form-group">
+            <label>Line X1 (Start): <span class="val" id="lbl_line_x1">0px</span></label>
+            <input type="range" id="input_line_x1" min="0" max="1280" value="0">
+          </div>
+
+          <div class="form-group">
+            <label>Line X2 (End): <span class="val" id="lbl_line_x2">640px</span></label>
+            <input type="range" id="input_line_x2" min="0" max="1280" value="640">
+          </div>
+
+          <div class="form-group">
+            <label>AI Min Confidence: <span class="val" id="lbl_min_conf">40%</span></label>
+            <input type="range" id="input_min_conf" min="0.10" max="0.95" step="0.05" value="0.40">
+          </div>
+
+          <div class="form-group">
+            <label>Min Width: <span class="val" id="lbl_min_w">25px</span></label>
+            <input type="range" id="input_min_w" min="5" max="300" value="25">
+          </div>
+
+          <div class="form-group">
+            <label>Max Width: <span class="val" id="lbl_max_w">640px</span></label>
+            <input type="range" id="input_max_w" min="50" max="1280" value="640">
+          </div>
+
+          <div class="form-group">
+            <label>Min Height: <span class="val" id="lbl_min_h">25px</span></label>
+            <input type="range" id="input_min_h" min="5" max="400" value="25">
+          </div>
+
+          <div class="form-group">
+            <label>Max Height: <span class="val" id="lbl_max_h">480px</span></label>
+            <input type="range" id="input_max_h" min="50" max="1280" value="480">
+          </div>
+
+          <div class="form-group">
+            <label>Min Aspect Ratio (W/H): <span class="val" id="lbl_min_ar">0.00</span></label>
+            <input type="range" id="input_min_ar" min="0.0" max="1.0" step="0.02" value="0.00">
+          </div>
+
+          <div class="form-group">
+            <label>Min Movement: <span class="val" id="lbl_min_move">0px</span></label>
+            <input type="range" id="input_min_move" min="0" max="200" value="0">
+          </div>
+
+          <button type="submit" class="btn-save">Save Live Settings</button>
+        </form>
+      </div>
+
+      <!-- 3. Video Overlays (OSD) -->
+      <div class="card-settings">
+        <h3>👁️ Video Overlays (OSD)</h3>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="osd_show_line" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="osd_show_line" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Counting Line</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="osd_show_boxes" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="osd_show_boxes" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Detection Boxes</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="osd_show_tracks" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="osd_show_tracks" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Tracks & Trails</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="osd_show_persons" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="osd_show_persons" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Debug: Show Ignored Persons</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="osd_show_hud" style="width: auto; margin: 0; cursor: pointer;">
+            <label for="osd_show_hud" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">HUD / Text Info</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Statystyki -->
+      <div class="stat-card bike">
+        <div class="label">Bicycles Today</div>
         <div class="value" id="bikeTodayVal">0</div>
-        <div class="sub">Bicycles Today</div>
+        <div class="sub">Total: <span id="bikeTotalVal">0</span></div>
       </div>
-      <div class="stat-card count" style="border-color: #d2a8ff;">
-        <div class="label">Today</div>
-        <div class="value" id="scooterTodayVal" style="color: #d2a8ff;">0</div>
-        <div class="sub">E-Scooters Today</div>
+
+      <div class="stat-card scooter">
+        <div class="label">E-Scooters Today</div>
+        <div class="value" id="scooterTodayVal">0</div>
+        <div class="sub">Total: <span id="scooterTotalVal">0</span></div>
       </div>
+
       <div class="stat-card total">
-        <div class="label">All Time</div>
+        <div class="label">All Time Crossings</div>
         <div class="value" id="allTimeVal">0</div>
-        <div class="sub">Total since deployment</div>
+        <div class="sub">Combined today: <span id="todayTotalVal">0</span></div>
       </div>
+
       <div class="stat-card fps">
-        <div class="label">Pipeline FPS</div>
-        <div class="value" id="fpsVal">0</div>
-        <div class="sub">Frames per second</div>
+        <div class="label">Pipeline FPS / Active Tracks</div>
+        <div class="value"><span id="fpsVal">0</span> <span style="font-size: 1rem; color: #8b949e;">FPS</span> / <span id="activeVal" style="color: #79c0ff;">0</span></div>
+        <div class="sub">Processing speed & current objects</div>
       </div>
-      <div class="stat-card active">
-        <div class="label">Active Tracks</div>
-        <div class="value" id="activeVal">0</div>
-        <div class="sub">Currently tracked bicycles</div>
-      </div>
-<div class="card" style="margin: 20px 0; padding: 20px; background: #222; color: #fff; border-radius: 8px;">
-  <h3 style="margin-top: 0;">⚙️ Live Counting Settings</h3>
-  
-  <form id="liveConfigForm">
-    <div style="margin-bottom: 15px;">
-      <label for="input_line_y" style="display: block; margin-bottom: 5px;">Counting Line Y Position (px):</label>
-      <input type="number" id="input_line_y" placeholder="e.g. 240" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #333; color: white;">
-    </div>
 
-    <div style="margin-bottom: 15px;">
-      <label for="input_min_conf" style="display: block; margin-bottom: 5px;">AI Min Confidence (0.1 - 1.0):</label>
-      <input type="number" step="0.05" min="0.1" max="1.0" id="input_min_conf" placeholder="e.g. 0.45" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #333; color: white;">
-    </div>
-
-    <button type="submit" style="width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
-      Save Live Settings
-    </button>
-  </form>
-</div>
- </div>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card count">
-      <div class="label">Today</div>
-      <div class="value" id="todayVal">0</div>
-    </div>
-    <div class="stat-card total">
-      <div class="label">All Time</div>
-      <div class="value" id="allTimeVal2">0</div>
     </div>
   </div>
 
@@ -147,6 +250,7 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
       <canvas id="quarterlyChart"></canvas>
     </div>
   </div>
+
   <div class="events-panel">
     <h3>Recent Detections</h3>
     <table>
@@ -154,11 +258,8 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
       <tbody id="eventsBody"><tr><td colspan="3" class="no-data">No detections yet</td></tr></tbody>
     </table>
   </div>
-    <div class="log-panel" id="logPanel">
-        <h3>Terminal Logs</h3>
-        <pre id="logContent"></pre>
-    </div>
 </div>
+
 <script>
 const timelineData={labels:[],datasets:[{label:'Crossings',data:[],borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true,tension:0.3,pointRadius:3}]};
 const timelineChart=new Chart(document.getElementById('timelineChart'),{type:'line',data:timelineData,options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{beginAtZero:true,ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}});
@@ -169,6 +270,33 @@ const quarterlyChart=new Chart(document.getElementById('quarterlyChart'),{
 });
 
 let prevCount=0;
+let initialOsdLoaded=false;
+let initialSlidersLoaded=false;
+let calibPausedGlobal=false;
+
+const sliderConfigs = [
+  { id: 'input_line_y', lbl: 'lbl_line_y', unit: 'px' },
+  { id: 'input_line_x1', lbl: 'lbl_line_x1', unit: 'px' },
+  { id: 'input_line_x2', lbl: 'lbl_line_x2', unit: 'px' },
+  { id: 'input_min_conf', lbl: 'lbl_min_conf', format: v => Math.round(v * 100) + '%' },
+  { id: 'input_min_w', lbl: 'lbl_min_w', unit: 'px' },
+  { id: 'input_max_w', lbl: 'lbl_max_w', unit: 'px' },
+  { id: 'input_min_h', lbl: 'lbl_min_h', unit: 'px' },
+  { id: 'input_max_h', lbl: 'lbl_max_h', unit: 'px' },
+  { id: 'input_min_ar', lbl: 'lbl_min_ar', format: v => parseFloat(v).toFixed(2) },
+  { id: 'input_min_move', lbl: 'lbl_min_move', unit: 'px' }
+];
+
+sliderConfigs.forEach(s => {
+  const el = document.getElementById(s.id);
+  const lbl = document.getElementById(s.lbl);
+  if(el && lbl) {
+    el.addEventListener('input', (e) => {
+      lbl.textContent = s.format ? s.format(e.target.value) : `${e.target.value}${s.unit}`;
+    });
+  }
+});
+
 async function fetchStats(){
   try{
     const r=await fetch('/stats');
@@ -184,21 +312,98 @@ async function fetchStats(){
     const totalAllTime = d.all_time_total || (bikeAllTime + scooterAllTime);
 
     document.getElementById('bikeTodayVal').textContent = bikeToday;
+    document.getElementById('bikeTotalVal').textContent = bikeAllTime;
     document.getElementById('scooterTodayVal').textContent = scooterToday;
-    document.getElementById('countValMob').textContent = totalToday; 
-    document.getElementById('todayVal').textContent = totalToday;
+    document.getElementById('scooterTotalVal').textContent = scooterAllTime;
+    document.getElementById('todayTotalVal').textContent = totalToday;
     document.getElementById('allTimeVal').textContent = totalAllTime;
-    document.getElementById('allTimeVal2').textContent = totalAllTime;
+    
     document.getElementById('fpsVal').textContent=d.fps;
     document.getElementById('activeVal').textContent=d.active_tracks;
     document.getElementById('fpsBadge').textContent=d.fps+' FPS';
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
     document.getElementById('statusDot').className=d.fps>0?'dot ok':'dot';
 
-    // Pokaż/ukryj ostrzeżenie o czasie
     const timeWarning = document.getElementById('timeWarning');
     if (d.time_synced === false) timeWarning.style.display = 'inline-block';
     else timeWarning.style.display = 'none';
+
+    if (d.osd && !initialOsdLoaded) {
+      ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"].forEach(key => {
+        const el = document.getElementById("osd_" + key);
+        if (el && d.osd[key] !== undefined) {
+          el.checked = d.osd[key];
+        }
+      });
+      initialOsdLoaded = true;
+    }
+
+    if (d.config && !initialSlidersLoaded) {
+      const cfg = d.config;
+      const trk = cfg.tracker || {};
+      const flt = cfg.filters || {};
+      const mdl = cfg.model || {};
+
+      const setSlider = (id, val, lblId, cfgObj) => {
+        const el = document.getElementById(id);
+        const lbl = document.getElementById(lblId);
+        if(el && val !== undefined) {
+          el.value = val;
+          if(lbl) lbl.textContent = cfgObj.format ? cfgObj.format(val) : `${val}${cfgObj.unit}`;
+        }
+      };
+
+      setSlider('input_line_y', trk.crossing_line_y, 'lbl_line_y', sliderConfigs[0]);
+      setSlider('input_line_x1', trk.line_x1, 'lbl_line_x1', sliderConfigs[1]);
+      setSlider('input_line_x2', trk.line_x2, 'lbl_line_x2', sliderConfigs[2]);
+      setSlider('input_min_conf', mdl.min_confidence, 'lbl_min_conf', sliderConfigs[3]);
+      setSlider('input_min_w', flt.min_width, 'lbl_min_w', sliderConfigs[4]);
+      setSlider('input_max_w', flt.max_width, 'lbl_max_w', sliderConfigs[5]);
+      setSlider('input_min_h', flt.min_height, 'lbl_min_h', sliderConfigs[6]);
+      setSlider('input_max_h', flt.max_height, 'lbl_max_h', sliderConfigs[7]);
+      setSlider('input_min_ar', flt.min_aspect_ratio, 'lbl_min_ar', sliderConfigs[8]);
+      setSlider('input_min_move', flt.min_movement_px, 'lbl_min_move', sliderConfigs[9]);
+      initialSlidersLoaded = true;
+    }
+
+    const calibMode = d.calibration_mode || false;
+    const sampleRec = d.sample_recording || false;
+    const sampleExists = d.sample_exists || false;
+
+    const checkCalib = document.getElementById('checkCalibMode');
+    if (document.activeElement !== checkCalib) {
+      checkCalib.checked = calibMode;
+    }
+
+    const calibStatus = document.getElementById('calibStatus');
+    if (sampleRec) {
+      calibStatus.textContent = "Recording sample...";
+      calibStatus.style.color = "#f85149";
+    } else if (calibMode) {
+      calibStatus.textContent = "Loop active (calibration)";
+      calibStatus.style.color = "#d2a8ff";
+    } else {
+      calibStatus.textContent = sampleExists ? "Live camera (sample exists)" : "Live camera";
+      calibStatus.style.color = "#3fb950";
+    }
+
+    calibPausedGlobal = d.calib_paused || false;
+    const scrubber = document.getElementById('calibScrubber');
+    const label = document.getElementById('calibFrameLabel');
+    const playPauseBtn = document.getElementById('btnPlayPause');
+    
+    if (d.calib_total_frames) {
+      scrubber.max = d.calib_total_frames;
+      label.textContent = `${d.calib_frame || 0} / ${d.calib_total_frames}`;
+      if (document.activeElement !== scrubber) {
+        scrubber.value = d.calib_frame || 0;
+      }
+    } else {
+      scrubber.max = 0;
+      label.textContent = "0 / 0";
+    }
+
+    playPauseBtn.textContent = calibPausedGlobal ? "▶️ Play" : "⏸️ Pause";
 
     if(totalToday!==prevCount){
       timelineData.labels.push('');
@@ -215,7 +420,6 @@ async function fetchStats(){
     const tbody=document.getElementById('eventsBody');
     if(d.events&&d.events.length>0){
       tbody.innerHTML = d.events.slice().reverse().map(e => {
-        // Dodajemy kolumnę z typem pojazdu
         const vehicleType = e.vehicle_type || 'bicycle';
         const typeClass = vehicleType.toLowerCase().replace(' ', '-');
         return `<tr><td>${e.time_str}</td><td><span class="badge-type ${typeClass}">${vehicleType}</span></td><td>#${e.track_id}</td></tr>`;
@@ -230,37 +434,36 @@ fetchStats();
 
 async function fetchLogs() {
     try {
-        const response = await fetch('/api/logs');
-        const text = await response.text();
-        const logContent = document.getElementById('logContent');
-        logContent.textContent = text;
-        const logPanel = document.getElementById('logPanel');
-        logPanel.scrollTop = logPanel.scrollHeight;
+        const response = await fetch('/stats');
+        const d = await response.json();
+        if(d.logs) {
+            const logContent = document.getElementById('logContent');
+            logContent.textContent = d.logs.join('\n');
+            const logPanel = document.getElementById('logPanel');
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
     } catch (e) {
         console.error("Failed to fetch logs:", e);
     }
 }
-setInterval(fetchLogs, 2000); // Fetch every 2 seconds
+setInterval(fetchLogs, 2000);
 fetchLogs();
-</script>
 
-<script>
 document.getElementById('liveConfigForm').addEventListener('submit', async (e) => {
     e.preventDefault(); 
 
-    
-    const lineY = document.getElementById('input_line_y').value;
-    const minConf = document.getElementById('input_min_conf').value;
-
-    
-    const payload = {};
-    if (lineY !== "") payload.crossing_line_y = parseInt(lineY);
-    if (minConf !== "") payload.min_confidence = parseFloat(minConf);
-
-    if (Object.keys(payload).length === 0) {
-        alert("Please enter at least one value to update!");
-        return;
-    }
+    const payload = {
+      crossing_line_y: parseInt(document.getElementById('input_line_y').value),
+      line_x1: parseInt(document.getElementById('input_line_x1').value),
+      line_x2: parseInt(document.getElementById('input_line_x2').value),
+      min_confidence: parseFloat(document.getElementById('input_min_conf').value),
+      min_width: parseInt(document.getElementById('input_min_w').value),
+      max_width: parseInt(document.getElementById('input_max_w').value),
+      min_height: parseInt(document.getElementById('input_min_h').value),
+      max_height: parseInt(document.getElementById('input_max_h').value),
+      min_aspect_ratio: parseFloat(document.getElementById('input_min_ar').value),
+      min_movement_px: parseInt(document.getElementById('input_min_move').value)
+    };
 
     try {
         const response = await fetch('/api/config', {
@@ -276,6 +479,127 @@ document.getElementById('liveConfigForm').addEventListener('submit', async (e) =
         }
     } catch (err) {
         alert("❌ Connection error to the server.");
+    }
+});
+
+document.getElementById('btnRecordSample').addEventListener('click', async () => {
+    try {
+        const response = await fetch('/api/calibration/record', { method: 'POST' });
+        if (response.ok) {
+            alert("✅ Recording request sent! Watch status below.");
+        } else {
+            alert("❌ Error sending record request.");
+        }
+    } catch (e) {
+        alert("❌ Connection error.");
+    }
+});
+
+document.getElementById('checkCalibMode').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    try {
+        const response = await fetch('/api/calibration/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        if (!response.ok) {
+            alert("❌ Error updating calibration mode.");
+            e.target.checked = !enabled;
+        }
+    } catch (err) {
+        alert("❌ Connection error.");
+        e.target.checked = !enabled;
+    }
+});
+
+document.getElementById('btnPlayPause').addEventListener('click', async () => {
+    const action = calibPausedGlobal ? "play" : "pause";
+    try {
+        await fetch('/api/calibration/playback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+    } catch (e) {}
+});
+
+document.getElementById('btnPrevFrame').addEventListener('click', async () => {
+    try {
+        await fetch('/api/calibration/playback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: "step", frames: -1 })
+        });
+    } catch (e) {}
+});
+
+document.getElementById('btnNextFrame').addEventListener('click', async () => {
+    try {
+        await fetch('/api/calibration/playback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: "step", frames: 1 })
+        });
+    } catch (e) {}
+});
+
+document.getElementById('calibScrubber').addEventListener('input', async (e) => {
+    const frame = parseInt(e.target.value);
+    try {
+        await fetch('/api/calibration/playback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: "seek", frame })
+        });
+    } catch (e) {}
+});
+
+document.getElementById('btnUploadVideo').addEventListener('click', async () => {
+    const fileInput = document.getElementById('calibUploadInput');
+    if (fileInput.files.length === 0) {
+        alert("Please select an MP4 or AVI file first!");
+        return;
+    }
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    
+    try {
+        const response = await fetch('/api/calibration/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const res = await response.json();
+        if (response.ok && res.status === "ok") {
+            alert("✅ Video uploaded successfully as calibration_sample.mp4!");
+        } else {
+            alert("❌ Upload failed: " + (res.message || "Unknown error"));
+        }
+    } catch (e) {
+        alert("❌ Network error during video upload.");
+    }
+});
+
+["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"].forEach(key => {
+    const el = document.getElementById("osd_" + key);
+    if (el) {
+        el.addEventListener("change", async (e) => {
+            const enabled = e.target.checked;
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ [key]: enabled })
+                });
+                if (!response.ok) {
+                    alert("❌ Error saving OSD setting.");
+                    e.target.checked = !enabled;
+                }
+            } catch (err) {
+                alert("❌ Connection error.");
+                e.target.checked = !enabled;
+            }
+        });
     }
 });
 </script>

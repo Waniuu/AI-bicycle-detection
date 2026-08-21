@@ -12,7 +12,7 @@ import time
 import io
 import logging
 import threading
-from collections import deque
+from collections import deque, Counter
 from datetime import datetime
 
 import cv2
@@ -59,23 +59,45 @@ def compute_iou(a, b):
 
 
 class Track:
-    __slots__ = ("id", "cx", "cy", "prev_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score", "class_name")
+    __slots__ = ("id", "cx", "cy", "prev_cy", "start_cx", "start_cy", "bbox", "confidence", "last_seen", "created_at", "counted", "best_frame", "best_score", "class_name", "class_history", "history_centers")
     
-    def __init__(self, tid, cx, cy, bbox, confidence):
+    def __init__(self, tid, cx, cy, bbox, confidence, initial_class="vehicle"):
         self.id = tid
         self.cx = cx
         self.cy = cy
-        self.prev_cy = cy  # Inicjalizacja prev_cy
+        self.prev_cy = cy
+        self.start_cx = cx
+        self.start_cy = cy
         self.bbox = bbox
         self.confidence = confidence
         self.last_seen = time.time()
         self.created_at = time.time()
         self.counted = False
-        self.best_frame = None  # Inicjalizacja best_frame
-        self.best_score = 0.0   # Inicjalizacja best_score
-        self.class_name="vehicle"
+        self.best_frame = None
+        self.best_score = 0.0
+        self.class_name = initial_class
+        self.class_history = deque(maxlen=15)
+        self.class_history.append(initial_class)
+        self.history_centers = deque(maxlen=20)
+        self.history_centers.append((cx, cy))
 
-        
+    def add_class_observation(self, cls_name):
+        self.class_history.append(cls_name)
+
+    def get_voted_class(self, min_ratio=0.50):
+        if len(self.class_history) < 3:
+            return self.class_name
+        counts = Counter(self.class_history)
+        most_common, count = counts.most_common(1)[0]
+        ratio = count / len(self.class_history)
+        if ratio >= min_ratio:
+            self.class_name = most_common
+        return self.class_name
+
+    def get_total_displacement(self):
+        return ((self.cx - self.start_cx)**2 + (self.cy - self.start_cy)**2)**0.5
+
+
 class Tracker:
     def __init__(self):
         self.tracks = []
@@ -112,6 +134,8 @@ class Tracker:
                 track.bbox = det["bbox_xyxy"]
                 track.confidence = det["confidence"]
                 track.last_seen = now
+                track.history_centers.append((track.cx, track.cy))
+                track.add_class_observation(det.get("class_name", "vehicle"))
                 
                 matched.append({
                     "track_id": track.id, "cx": track.cx, "cy": track.cy,
@@ -125,7 +149,7 @@ class Tracker:
         for j, det in enumerate(detections):
             if j in used:
                 continue
-            t = Track(self._next_id, det["cx"], det["cy"], det["bbox_xyxy"], det["confidence"])
+            t = Track(self._next_id, det["cx"], det["cy"], det["bbox_xyxy"], det["confidence"], initial_class=det.get("class_name", "vehicle"))
             self._next_id += 1
             self.tracks.append(t)
             matched.append({
@@ -138,12 +162,22 @@ class Tracker:
 
         return matched
 
+
 # ---------------------------------------------------------------------------
 # Shared state
 # ---------------------------------------------------------------------------
 class SharedState:
     def __init__(self):
         self.lock = threading.Lock()
+        self.config = CFG
+        if "osd" not in self.config:
+            self.config["osd"] = {
+                "show_line": True,
+                "show_boxes": True,
+                "show_tracks": True,
+                "show_persons": False,
+                "show_hud": True
+            }
         self.frame_count = 0
         self.bicycle_count = 0
         self.scooter_count = 0
@@ -156,25 +190,63 @@ class SharedState:
         self.counted_positions = []
         self.start_time = time.time()
         self.camera_ok = False
+        self.record_sample_requested = False
+        self.sample_recording = False
+        self.calibration_mode = False
+        self.calib_paused = False
+        self.calib_step = 0
+        self.calib_seek_frame = -1
+        self.calib_current_frame = 0
+        self.calib_total_frames = 0
 
 state = SharedState()
 
 
-def draw_osd(img_pil, detections, total_count):
+def draw_osd(img_pil, detections, total_count, person_detections=[]):
     draw = ImageDraw.Draw(img_pil)
+    osd_cfg = state.config.get("osd", {})
 
-    tracker_cfg = CFG.get("tracker", {})
-    if tracker_cfg.get("use_crossing_line", False):
-        line_y = tracker_cfg.get("crossing_line_y", CFG.get("crossing_line_y", 240))
-        width, _ = img_pil.size
-        draw.line([(0, line_y), (width, line_y)], fill="red", width=3)
+    if osd_cfg.get("show_line", True):
+        tracker_cfg = state.config.get("tracker", {})
+        if tracker_cfg.get("use_crossing_line", False):
+            line_y = tracker_cfg.get("crossing_line_y", 240)
+            line_x1 = tracker_cfg.get("line_x1", 0)
+            line_x2 = tracker_cfg.get("line_x2", img_pil.size[0])
+            draw.line([(line_x1, line_y), (line_x2, line_y)], fill="red", width=3)
+            for x in (line_x1, line_x2):
+                draw.line([(x - 5, line_y), (x + 5, line_y)], fill="red", width=2)
+                draw.line([(x, line_y - 5), (x, line_y + 5)], fill="red", width=2)
 
+    if osd_cfg.get("show_hud", True):
+        draw.text((10, 10), f"Vehicles: {total_count}", fill="yellow")
+        if getattr(state, "calibration_mode", False):
+            draw.text((10, 25), "[CALIBRATION LOOP]", fill="yellow")
 
-    draw.text((10, 10), f"Vehicles: {total_count}", fill="yellow")
+    if osd_cfg.get("show_persons", False) and person_detections:
+        for p in person_detections:
+            px1, py1, px2, py2 = p["bbox_xyxy"]
+            draw.rectangle([px1, py1, px2, py2], outline="gray", width=1)
+            draw.text((px1, py1 - 12), f"person [ignored] {p['confidence']:.0%}", fill="gray")
+
     for det in detections:
         x, y, w, h = det["bbox"]
-        draw.rectangle([x, y, x + w, y + h], outline="lime", width=2)
-        draw.text((x, y - 14), f"{det['confidence']:.0%}", fill="white")
+        tid = det["track_id"]
+        v_type = det.get("class_name", "vehicle")
+        conf = det.get("confidence", 0.0)
+
+        if osd_cfg.get("show_boxes", True):
+            draw.rectangle([x, y, x + w, y + h], outline="lime", width=2)
+            draw.text((x, y - 14), f"{v_type} #{tid} {conf:.0%}", fill="white")
+
+        if osd_cfg.get("show_tracks", True):
+            track_obj = det.get("track_obj")
+            if track_obj and hasattr(track_obj, "history_centers"):
+                pts = list(track_obj.history_centers)
+                if len(pts) > 1:
+                    draw.line(pts, fill="cyan", width=2)
+                cx, cy = det["cx"], det["cy"]
+                draw.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill="cyan", outline="white")
+
     return img_pil
 
 
@@ -231,7 +303,6 @@ def main():
     state.camera_ok = True
     LOG.info("Camera opened: %dx%d", int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
-    # Statyczny import ujednoliconego serwera dashboardu
     import dashboard_server
     LOG.info("Loading dashboard module: dashboard_server.py")
     dashboard_server.set_shared_state(state)
@@ -245,31 +316,105 @@ def main():
     consecutive_failures = 0
     LOG.info("Processing frames...")
 
+    calib_cap = None
+    rec_writer = None
+    rec_frames_left = 0
+
     try:
         while not _shutdown.is_set():
-            ret, frame = cap.read()
-            if not ret:
-                consecutive_failures += 1
-                if consecutive_failures >= 30:
-                    LOG.warning("Camera read failed %d times, reconnecting...", consecutive_failures)
-                    cap.release()
-                    time.sleep(1)
-                    cap = open_camera()
-                    state.camera_ok = cap.isOpened()
-                    consecutive_failures = 0
-                    if not state.camera_ok:
-                        LOG.error("Camera reconnect failed, retrying in 5s...")
-                        time.sleep(5)
-                    else:
-                        LOG.info("Camera reconnected")
-                continue
+            if state.calibration_mode:
+                if not calib_cap or not calib_cap.isOpened():
+                    calib_cap = cv2.VideoCapture("calibration_sample.mp4")
+                    if not calib_cap.isOpened():
+                        LOG.error("Failed to open calibration_sample.mp4, falling back to camera")
+                        state.calibration_mode = False
+            else:
+                if calib_cap is not None:
+                    calib_cap.release()
+                    calib_cap = None
 
-            consecutive_failures = 0
-            state.camera_ok = True
-            current_conf = CFG.get("model", {}).get("min_confidence", 0.40) # Pobieramy z config.yaml, domyślnie 0.40
-            results = model(
-                frame, verbose=False, conf=current_conf
-            )  # Wykrycie obiektów
+            if state.calibration_mode and calib_cap and calib_cap.isOpened():
+                state.calib_total_frames = int(calib_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                vid_fps = calib_cap.get(cv2.CAP_PROP_FPS) or 15.0
+                time.sleep(1.0 / vid_fps)
+
+                if state.calib_seek_frame >= 0:
+                    calib_cap.set(cv2.CAP_PROP_POS_FRAMES, state.calib_seek_frame)
+                    state.calib_seek_frame = -1
+                    ret, frame = calib_cap.read()
+                    if not ret:
+                        calib_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = calib_cap.read()
+
+                elif state.calib_step != 0:
+                    current_pos = int(calib_cap.get(cv2.CAP_PROP_POS_FRAMES))
+                    target_pos = max(0, min(state.calib_total_frames - 1, current_pos + state.calib_step))
+                    calib_cap.set(cv2.CAP_PROP_POS_FRAMES, target_pos)
+                    state.calib_step = 0
+                    ret, frame = calib_cap.read()
+                    if not ret:
+                        calib_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = calib_cap.read()
+
+                elif state.calib_paused:
+                    if 'frame' not in locals() or frame is None:
+                        ret, frame = calib_cap.read()
+                        if not ret:
+                            calib_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            ret, frame = calib_cap.read()
+                    else:
+                        ret = True
+                else:
+                    ret, frame = calib_cap.read()
+                    if not ret:
+                        calib_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = calib_cap.read()
+
+                if ret:
+                    state.calib_current_frame = int(calib_cap.get(cv2.CAP_PROP_POS_FRAMES))
+            else:
+                ret, frame = cap.read()
+                if not ret:
+                    consecutive_failures += 1
+                    if consecutive_failures >= 30:
+                        LOG.warning("Camera read failed %d times, reconnecting...", consecutive_failures)
+                        cap.release()
+                        time.sleep(1)
+                        cap = open_camera()
+                        state.camera_ok = cap.isOpened()
+                        consecutive_failures = 0
+                        if not state.camera_ok:
+                            LOG.error("Camera reconnect failed, retrying in 5s...")
+                            time.sleep(5)
+                        else:
+                            LOG.info("Camera reconnected")
+                    continue
+
+                consecutive_failures = 0
+                state.camera_ok = True
+
+            if state.record_sample_requested:
+                state.record_sample_requested = False
+                state.sample_recording = True
+                rec_fps = int(cap.get(cv2.CAP_PROP_FPS)) or 15
+                rec_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or frame.shape[1]
+                rec_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or frame.shape[0]
+                rec_writer = cv2.VideoWriter("calibration_sample.mp4", cv2.VideoWriter_fourcc(*'mp4v'), rec_fps, (rec_w, rec_h))
+                rec_frames_left = 10 * rec_fps
+                LOG.info("Started recording calibration sample (10s, %d frames)...", rec_frames_left)
+
+            if state.sample_recording:
+                if rec_writer and rec_writer.isOpened():
+                    rec_writer.write(frame)
+                    rec_frames_left -= 1
+                    if rec_frames_left <= 0:
+                        rec_writer.release()
+                        rec_writer = None
+                        state.sample_recording = False
+                        LOG.info("Finished recording calibration sample.")
+
+            current_conf = state.config.get("model", {}).get("min_confidence", 0.40)
+            results = model(frame, verbose=False, conf=current_conf)
 
             raw_dets = []
             person_detections_in_frame = []
@@ -280,135 +425,123 @@ def main():
                     conf = float(box.conf[0])
                     bbox_xyxy = box.xyxy[0].cpu().numpy()
                     bx1, by1, bx2, by2 = bbox_xyxy
-
-                    # Pobieramy prawdziwą nazwę klasy wprost z silnika best.engine
                     class_name = model.names.get(class_id, "unknown")
 
-                    # Odrzucamy ludzi – nie trafiają do trackera ani na nagranie
                     if class_name == "person":
-                        person_detections_in_frame.append(
-                            {"bbox_xyxy": bbox_xyxy, "confidence": conf}
-                        )
-                        LOG.debug("Ignorowanie pieszego (conf: %.2f)", conf)
+                        person_detections_in_frame.append({"bbox_xyxy": bbox_xyxy, "confidence": conf})
                         continue
 
-                    # Przetwarzamy wyłącznie rowerzystów i hulajnogi
                     if class_name not in ["cyclist", "e-scooter"]:
                         continue
 
-                    # Dodajemy wszystkie docelowe obiekty (rowery, hulajnogi, LUDZI) do dalszego przetwarzania
                     raw_dets.append({
-                        "cx": (bx1 + bx2) / 2.0, 
+                        "cx": (bx1 + bx2) / 2.0,
                         "cy": (by1 + by2) / 2.0,
                         "bbox": (bx1, by1, bx2 - bx1, by2 - by1),
-                        "bbox_xyxy": bbox_xyxy, 
+                        "bbox_xyxy": bbox_xyxy,
                         "confidence": conf,
-                        "class_id": class_id,         # DODANE: id klasy (0 lub 1)
-                        "class_name": class_name      # DODANE: czytelna nazwa ('e-scooter' / 'bicycle')
+                        "class_id": class_id,
+                        "class_name": class_name
                     })
 
                     state.total_detections += 1
                     state.confidence_values.append(conf)
 
-            detections = tracker.update(raw_dets) # powiedzenie trackerowi jaki obiekt jest śledzony
+            detections = tracker.update(raw_dets)
             active_ids = set()
             new_vehicles = []
             now_check = time.time()
 
-            line_y = CFG.get("tracker", {}).get("crossing_line_y", CFG.get("crossing_line_y", 240))
+            line_y = state.config.get("tracker", {}).get("crossing_line_y", 240)
             img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img_pil = Image.fromarray(img_rgb)
 
-            use_line = CFG.get("tracker", {}).get("use_crossing_line", False)
+            current_tracker_cfg = state.config.get("tracker", {})
+            use_line = current_tracker_cfg.get("use_crossing_line", False)
 
-            
-            #rysowane są ramki, wybierane zdjęcia, sprawdzanie przekroczenia linii i rejestracja nowych pojazdów
             for det in detections:
-                # detections to lista wykrytych obiektów 
-                tid = det["track_id"] # pobranie identyfikatora pojazdu z trackera
-                active_ids.add(tid)# dodanie identyfikatora do zbioru aktywnych obiektów
+                tid = det["track_id"]
+                active_ids.add(tid)
 
-                track_obj = det.get("track_obj") # pobranie teczki pojazdu
+                track_obj = det.get("track_obj")
                 if not track_obj:
                     continue
 
-                det_class_name = det.get("class_name", "vehicle")
+                voted_class = track_obj.get_voted_class(min_ratio=0.50)
                 bx1, by1, bx2, by2 = det["bbox_xyxy"]
                 w, h = bx2 - bx1, by2 - by1
-                
                 current_score = det["confidence"] * (w * h)
-                
-                # Aktualizujemy klasę i najlepszą klatkę
+
                 if current_score > track_obj.best_score:
                     track_obj.best_score = current_score
-                    track_obj.class_name = det_class_name
-                    
                     frame_with_box = img_pil.copy()
                     draw_box = ImageDraw.Draw(frame_with_box)
                     draw_box.rectangle([bx1, by1, bx2, by2], outline="lime", width=3)
                     draw_box.rectangle([bx1, by1 - 18, bx1 + 80, by1], fill="black")
-                    label_text = f"{det_class_name} #{tid} {det['confidence']:.0%}"
+                    label_text = f"{voted_class} #{tid} {det['confidence']:.0%}"
                     draw_box.text((bx1 + 2, by1 - 16), label_text, fill="lime")
                     track_obj.best_frame = frame_with_box
-                
-                # Pobieramy zapisaną, ustabilizowaną klasę z obiektu:
-                class_name = track_obj.class_name
 
-                # --- FILTR MINIMALNEGO ROZMIARU ---
-                # Odrzucamy obiekty, które są zbyt małe, aby były pojazdami.
-                # To skutecznie eliminuje małe, błędne detekcje (np. ręce).
-                filters_cfg = CFG.get("filters", {})
+                class_name = voted_class
+
+                filters_cfg = state.config.get("filters", {})
                 min_w = filters_cfg.get("min_width", 25)
                 min_h = filters_cfg.get("min_height", 25)
                 if w < min_w or h < min_h:
                     continue
 
-                # --- FILTR MAKSYMALNEGO ROZMIARU ---
-                # Odrzucamy obiekty, które są zbyt duże, aby były pojazdami,
-                # np. zasłaniające większość obiektywu (ręka, rękaw itp.)
-                max_w = filters_cfg.get("max_width", CFG["camera_width"] + 1)
-                max_h = filters_cfg.get("max_height", CFG["camera_height"] + 1)
+                cam_w = state.config.get("camera_width", 640)
+                cam_h = state.config.get("camera_height", 480)
+                max_w = filters_cfg.get("max_width", cam_w + 1)
+                max_h = filters_cfg.get("max_height", cam_h + 1)
                 if w > max_w or h > max_h:
-                    LOG.debug("Filtered out object due to excessive size (w=%d, h=%d)", w, h)
                     continue
 
-                # --- FILTR STABILNOŚCI ŚLEDZENIA (PERSISTENCE) ---
-                # Obiekt musi być śledzony przez określony czas, zanim zostanie zliczony.
-                # To odrzuca chwilowe, przypadkowe detekcje.
-                if now_check - track_obj.created_at < CFG["track_persist_time"]:
+                min_ratio = filters_cfg.get("min_aspect_ratio", 0.0)
+                if min_ratio > 0.0 and (w / float(h)) < min_ratio:
+                    continue
+
+                track_persist = state.config.get("tracker", {}).get("track_persist_time", 0.3)
+                if now_check - track_obj.created_at < track_persist:
                     continue
 
                 if not track_obj.counted:
                     should_count = False
 
+                    min_move = filters_cfg.get("min_movement_px", 0)
+                    if min_move > 0 and track_obj.get_total_displacement() < min_move:
+                        continue
 
                     if use_line:
+                        line_x1 = current_tracker_cfg.get("line_x1", 0)
+                        line_x2 = current_tracker_cfg.get("line_x2", 9999)
                         was_above_or_near = track_obj.prev_cy < (line_y + 50)
                         is_now_at_or_below = det["cy"] >= line_y
-                        if was_above_or_near and is_now_at_or_below:
+                        within_x_bounds = line_x1 <= det["cx"] <= line_x2
+                        if was_above_or_near and is_now_at_or_below and within_x_bounds:
                             should_count = True
                     else:
-                       
                         should_count = True
 
                     if should_count:
                         track_obj.counted = True
+                        if not state.calibration_mode:
+                            if class_name == "cyclist":
+                                state.bicycle_count += 1
+                                LOG.info("NEW CYCLIST #%d detected | Total: %d", tid, state.bicycle_count)
+                            elif class_name == "e-scooter":
+                                state.scooter_count += 1
+                                LOG.info("NEW E-SCOOTER #%d detected | Total: %d", tid, state.scooter_count)
+                            else:
+                                LOG.warning("Counted unknown vehicle type: %s", class_name)
 
-                        
-                        if class_name == "cyclist":
-                            state.bicycle_count += 1
-                            LOG.info("NEW CYCLIST #%d detected | Total cyclists: %d", tid, state.bicycle_count)
-                        elif class_name == "e-scooter":
-                            state.scooter_count += 1
-                            LOG.info("NEW E-SCOOTER #%d detected | Total scooters: %d", tid, state.scooter_count)
+                            new_vehicles.append({
+                                "track_id": tid,
+                                "vehicle_type": class_name,
+                                "image": track_obj.best_frame or img_pil
+                            })
                         else:
-                            LOG.warning("Counted unknown vehicle type: %s", class_name)
-
-                        new_vehicles.append({
-                            "track_id": tid,
-                            "vehicle_type": class_name,
-                            "image": track_obj.best_frame or img_pil
-                        })
+                            LOG.info("CALIBRATION MODE: Suppressed vehicle #%d (%s)", tid, class_name)
 
             state.counted_positions = [(x, y, t) for x, y, t in state.counted_positions if now_check - t < CFG["dedup_ttl"]]
 
@@ -422,8 +555,7 @@ def main():
                     if dt > 0:
                         state.fps = (len(state._frame_times) - 1) / dt
 
-          
-            img_pil = draw_osd(img_pil, detections, state.bicycle_count)
+            img_pil = draw_osd(img_pil, detections, state.bicycle_count, person_detections_in_frame)
             jpeg_buf = io.BytesIO()
             img_pil.save(jpeg_buf, format="JPEG", quality=75)
             with state.lock:
@@ -431,16 +563,11 @@ def main():
 
             for det in new_vehicles:
                 v_type = det.get("vehicle_type", "bike")
-                # Zmieniono format nazwy pliku, aby zawierał pełną datę i godzinę na początku
                 ts_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 fname = f"{ts_str}_{v_type}_id{det['track_id']}.jpg"
-                
-                
                 save_img = det["image"]
                 save_img.save(os.path.join(SCREENSHOT_DIR, fname), format="JPEG", quality=90)
-                
                 iso_ts = datetime.now().isoformat(timespec="seconds")
-
                 db.record_crossing(
                     location_id=location_id,
                     timestamp_str=iso_ts,

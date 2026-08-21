@@ -2,7 +2,7 @@
 FastAPI dashboard server for the bicycle & scooter counter v3.0.
   GET /          - Live dashboard (HTML)
   GET /video     - MJPEG stream
-  GET /stats     - JSON stats (w tym logi terminala)
+  GET /stats     - JSON stats (w tym logi terminala, OSD i config)
   GET /health    - Health check JSON
   GET /database  - Database viewer (HTML)
   GET /api/crossings /api/quarterly - JSON data
@@ -18,7 +18,7 @@ import logging
 import yaml
 from datetime import datetime
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -26,7 +26,6 @@ import uvicorn
 
 LOG = logging.getLogger("bike_counter")
 
-# _BASE jest teraz głównym katalogiem projektu
 _BASE = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(title="Mobility Counter", version="3.0")
@@ -38,7 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Szablony znajdują się w podkatalogu
 templates = Jinja2Templates(directory=os.path.join(_BASE, "Dashboard/templates"))
 
 _state = None
@@ -67,12 +65,9 @@ def set_config(cfg):
 
 
 def get_recent_logs(lines_count=15):
-    """Odczytuje ostatnie linie z pliku logów aplikacji na podstawie config.yaml"""
     log_path = _config.get("log_file")
-        
     if not log_path:
         log_path = os.path.join(_BASE, "bicycle_counter.log")
-
     if not os.path.exists(log_path):
         return ["Waiting for log file..."]
     try:
@@ -104,6 +99,14 @@ def _get_stats():
             "total_detections": getattr(_state, "total_detections", 0),
             "camera_ok": getattr(_state, "camera_ok", False),
             "time_synced": datetime.now().year >= 2024,
+            "calibration_mode": getattr(_state, "calibration_mode", False),
+            "sample_recording": getattr(_state, "sample_recording", False),
+            "sample_exists": os.path.exists("calibration_sample.mp4"),
+            "osd": _state.config.get("osd", {}) if hasattr(_state, "config") else {},
+            "config": _state.config if hasattr(_state, "config") else {},
+            "calib_paused": getattr(_state, "calib_paused", False),
+            "calib_frame": getattr(_state, "calib_current_frame", 0),
+            "calib_total_frames": getattr(_state, "calib_total_frames", 0),
         }
     
     if _db and _location_id:
@@ -114,7 +117,6 @@ def _get_stats():
         result["scooter_today"] = db_stats.get("scooter_today", 0)
         result["bike_all_time"] = db_stats.get("bike_all_time", db_stats.get("all_time_total", 0))
         result["scooter_all_time"] = db_stats.get("scooter_all_time", 0)
-
         result["today_total"] = db_stats.get("today_total", 0)
         result["all_time_total"] = db_stats.get("all_time_total", 0)
         result["quarterly"] = db_stats.get("quarterly", [])
@@ -164,7 +166,7 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    template_name = "dev/dashboard_dev.html"
+    template_name = "dashboard.html"
     context = {
         "version": _config.get("version", "3.0"),
         "device_name": _config.get("device_name", ""),
@@ -236,8 +238,7 @@ async def api_quarterly():
     conn = _db._conn()
     try:
         cur = conn.cursor()
-        # POPRAWKA: używamy .date i .location_id zgodnie z bazą danych
-        cur.execute( # Zmieniono c15.date na c15.data i c15.location_id na c15.lokalizacja
+        cur.execute(
             """SELECT c15.date, c15.czas, (c15.il_row + c15.il_hul) as total_count
                FROM co_15_minut c15
                JOIN locations l ON c15.lokalizacja = l.name
@@ -246,16 +247,13 @@ async def api_quarterly():
             (_location_id, _device_id),
         )
         rows = []
-        # POPRAWKA: mysql-connector zwraca czas (TIME) jako timedelta. Rozpakowujemy 3 zmienne.
         for date_val, time_val, count in cur.fetchall():
             total_seconds = int(time_val.total_seconds())
             h = total_seconds // 3600
             m = (total_seconds % 3600) // 60
-            
             eh, em = h, m + 15
             if em >= 60: 
                 em, eh = 0, (h + 1) % 24
-                
             date_str = date_val.strftime("%Y-%m-%d")
             rows.append({"date": date_str, "period": f"{h:02d}:{m:02d}-{eh:02d}:{em:02d}", "count": int(count)})
         return JSONResponse(rows)
@@ -270,8 +268,7 @@ async def export_csv():
     conn = _db._conn()
     try:
         cur = conn.cursor()
-        # POPRAWKA: zaktualizowane kolumny .date i .location_id
-        cur.execute( # Zmieniono c15.date na c15.data i c15.location_id na c15.lokalizacja
+        cur.execute(
             """SELECT c15.date, c15.czas, (c15.il_row + c15.il_hul) as total_count
                FROM co_15_minut c15
                JOIN locations l ON c15.lokalizacja = l.name
@@ -286,14 +283,11 @@ async def export_csv():
             total_seconds = int(time_val.total_seconds())
             h = total_seconds // 3600
             m = (total_seconds % 3600) // 60
-            
             eh, em = h, m + 15
             if em >= 60: 
                 em, eh = 0, (h + 1) % 24
-                
             date_str = date_val.strftime("%Y-%m-%d")
             writer.writerow([date_str, f"{h:02d}:{m:02d}-{eh:02d}:{em:02d}", int(count)])
-            
         return StreamingResponse(
             io.BytesIO(buf.getvalue().encode()),
             media_type="text/csv",
@@ -344,22 +338,98 @@ async def update_config(data: dict):
     else:
         cfg = _config
 
-    if "tracker" not in cfg:
-        cfg["tracker"] = {}
-    if "model" not in cfg:
-        cfg["model"] = {}
+    if "tracker" not in cfg: cfg["tracker"] = {}
+    if "model" not in cfg: cfg["model"] = {}
+    if "filters" not in cfg: cfg["filters"] = {}
+    if "osd" not in cfg: cfg["osd"] = {}
 
-    if "crossing_line_y" in data:
+    for key in ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"]:
+        if key in data:
+            cfg["osd"][key] = bool(data[key])
+            
+    if "crossing_line_y" in data and data["crossing_line_y"] != "":
         cfg["tracker"]["crossing_line_y"] = int(data["crossing_line_y"])
-        if _state and hasattr(_state, "config"):
-            _state.config["tracker"]["crossing_line_y"] = int(data["crossing_line_y"])
+    if "line_x1" in data and data["line_x1"] != "":
+        cfg["tracker"]["line_x1"] = int(data["line_x1"])
+    if "line_x2" in data and data["line_x2"] != "":
+        cfg["tracker"]["line_x2"] = int(data["line_x2"])
 
-    if "min_confidence" in data:
-        cfg["model"]["min_confidence"] = float(data["min_confidence"])
-        if _state and hasattr(_state, "config"):
-            _state.config["model"]["min_confidence"] = float(data["min_confidence"])
+    if "min_confidence" in data and data["min_confidence"] != "":
+        raw_conf = str(data["min_confidence"]).replace(",", ".")
+        cfg["model"]["min_confidence"] = float(raw_conf)
+
+    if "min_width" in data and data["min_width"] != "":
+        cfg["filters"]["min_width"] = int(data["min_width"])
+    if "max_width" in data and data["max_width"] != "":
+        cfg["filters"]["max_width"] = int(data["max_width"])
+    if "min_height" in data and data["min_height"] != "":
+        cfg["filters"]["min_height"] = int(data["min_height"])
+    if "max_height" in data and data["max_height"] != "":
+        cfg["filters"]["max_height"] = int(data["max_height"])
+
+    if "min_aspect_ratio" in data and data["min_aspect_ratio"] != "":
+        raw_ar = str(data["min_aspect_ratio"]).replace(",", ".")
+        cfg["filters"]["min_aspect_ratio"] = float(raw_ar)
+    if "min_movement_px" in data and data["min_movement_px"] != "":
+        cfg["filters"]["min_movement_px"] = int(data["min_movement_px"])
+
+    if _state and hasattr(_state, "config"):
+        _state.config = cfg
 
     with open(config_path, "w") as f:
-        yaml.dump(cfg, f)
+        yaml.dump(cfg, f, default_flow_style=False)
 
-    return {"status": "ok"}
+    LOG.info("Config updated from dashboard: %s", data)
+    return {"status": "ok", "config": cfg}
+
+
+@app.post("/api/calibration/record")
+async def record_calibration():
+    if _state is not None:
+        _state.record_sample_requested = True
+        return {"status": "ok", "message": "Record sample requested"}
+    return {"status": "error", "message": "Pipeline not running"}
+
+
+@app.post("/api/calibration/toggle")
+async def toggle_calibration(data: dict):
+    if _state is not None:
+        enabled = data.get("enabled", False)
+        _state.calibration_mode = bool(enabled)
+        return {"status": "ok", "calibration_mode": _state.calibration_mode}
+    return {"status": "error", "message": "Pipeline not running"}
+
+
+@app.post("/api/calibration/playback")
+async def calibration_playback(data: dict):
+    if _state is None:
+        return {"status": "error", "message": "Pipeline not running"}
+    action = data.get("action")
+    if action == "play":
+        _state.calib_paused = False
+    elif action == "pause":
+        _state.calib_paused = True
+    elif action == "step":
+        _state.calib_step = data.get("frames", 1)
+    elif action == "seek":
+        _state.calib_seek_frame = data.get("frame", 0)
+    return {
+        "status": "ok", 
+        "calib_paused": _state.calib_paused, 
+        "calib_frame": _state.calib_current_frame,
+        "calib_total_frames": _state.calib_total_frames
+    }
+
+
+@app.post("/api/calibration/upload")
+async def calibration_upload(file: UploadFile = File(...)):
+    file_path = "calibration_sample.mp4"
+    try:
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        LOG.info("Calibration video sample uploaded successfully: %s", file.filename)
+        return {"status": "ok", "message": f"File {file.filename} uploaded as calibration_sample.mp4"}
+    except Exception as e:
+        LOG.error("Failed to upload calibration sample: %s", str(e))
+        return {"status": "error", "message": str(e)}
