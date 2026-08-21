@@ -68,10 +68,8 @@ def set_config(cfg):
 
 def get_recent_logs(lines_count=15):
     """Odczytuje ostatnie linie z pliku logów aplikacji na podstawie config.yaml"""
-    # Główna aplikacja konfiguruje plik logów, możemy pobrać ścieżkę stamtąd
     log_path = _config.get("log_file")
         
-    # Domyślna ścieżka, jeśli brak wpisu w configu
     if not log_path:
         log_path = os.path.join(_BASE, "bicycle_counter.log")
 
@@ -105,7 +103,7 @@ def _get_stats():
             "active_tracks": len(getattr(_state, "active_tracks", [])),
             "total_detections": getattr(_state, "total_detections", 0),
             "camera_ok": getattr(_state, "camera_ok", False),
-            "time_synced": datetime.now().year >= 2024, # Dodajemy flagę statusu czasu
+            "time_synced": datetime.now().year >= 2024,
         }
     
     if _db and _location_id:
@@ -122,18 +120,16 @@ def _get_stats():
         result["quarterly"] = db_stats.get("quarterly", [])
         result["events"] = events
     else:
-        result["bike_today"] = result.get("bicycle_count", 0) # Zabezpieczenie na wypadek braku klucza
-        result["scooter_today"] = result["scooter_count"]
-        result["bike_all_time"] = result["bicycle_count"]
-        result["scooter_all_time"] = result["scooter_count"]
-        result["today_total"] = result["bicycle_count"] + result["scooter_count"]
-        result["all_time_total"] = result["bicycle_count"] + result["scooter_count"]
+        result["bike_today"] = result.get("bicycle_count", 0) 
+        result["scooter_today"] = result.get("scooter_count", 0)
+        result["bike_all_time"] = result.get("bicycle_count", 0)
+        result["scooter_all_time"] = result.get("scooter_count", 0)
+        result["today_total"] = result.get("bicycle_count", 0) + result.get("scooter_count", 0)
+        result["all_time_total"] = result.get("bicycle_count", 0) + result.get("scooter_count", 0)
         result["quarterly"] = []
         result["events"] = []
 
-    # Przekazanie logów do konsoli w dashboardzie
     result["logs"] = get_recent_logs(15)
-    
     return result
 
 
@@ -168,9 +164,7 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    # Używamy statycznie bogatszego szablonu deweloperskiego
     template_name = "dev/dashboard_dev.html"
-
     context = {
         "version": _config.get("version", "3.0"),
         "device_name": _config.get("device_name", ""),
@@ -242,22 +236,28 @@ async def api_quarterly():
     conn = _db._conn()
     try:
         cur = conn.cursor()
-        cur.execute(
-            """SELECT bucket_date, bucket_hour, bucket_quarter, total_count
-               FROM quarterly_counts
-               WHERE location_id=%s AND device_id=%s
-               ORDER BY bucket_date DESC, bucket_hour DESC, bucket_quarter DESC""",
+        # POPRAWKA: używamy .date i .location_id zgodnie z bazą danych
+        cur.execute( # Zmieniono c15.date na c15.data i c15.location_id na c15.lokalizacja
+            """SELECT c15.date, c15.czas, (c15.il_row + c15.il_hul) as total_count
+               FROM co_15_minut c15
+               JOIN locations l ON c15.lokalizacja = l.name
+               WHERE l.id = %s AND l.device_id = %s
+               ORDER BY c15.date DESC, c15.czas DESC""",
             (_location_id, _device_id),
         )
         rows = []
-        for date_val, hour, quarter, count in cur.fetchall():
-            h, q, c = int(hour), int(quarter), int(count)
-            ms = q * 15
-            eh, em = h, ms + 15
-            if em >= 60:
+        # POPRAWKA: mysql-connector zwraca czas (TIME) jako timedelta. Rozpakowujemy 3 zmienne.
+        for date_val, time_val, count in cur.fetchall():
+            total_seconds = int(time_val.total_seconds())
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            
+            eh, em = h, m + 15
+            if em >= 60: 
                 em, eh = 0, (h + 1) % 24
-            date_str = date_val.strftime("%Y-%m-%d") if hasattr(date_val, "strftime") else str(date_val)
-            rows.append({"date": date_str, "period": f"{h:02d}:{ms:02d}-{eh:02d}:{em:02d}", "count": c})
+                
+            date_str = date_val.strftime("%Y-%m-%d")
+            rows.append({"date": date_str, "period": f"{h:02d}:{m:02d}-{eh:02d}:{em:02d}", "count": int(count)})
         return JSONResponse(rows)
     finally:
         conn.close()
@@ -270,23 +270,30 @@ async def export_csv():
     conn = _db._conn()
     try:
         cur = conn.cursor()
-        cur.execute(
-            """SELECT bucket_date, bucket_hour, bucket_quarter, total_count
-               FROM quarterly_counts WHERE location_id=%s AND device_id=%s
-               ORDER BY bucket_date, bucket_hour, bucket_quarter""",
+        # POPRAWKA: zaktualizowane kolumny .date i .location_id
+        cur.execute( # Zmieniono c15.date na c15.data i c15.location_id na c15.lokalizacja
+            """SELECT c15.date, c15.czas, (c15.il_row + c15.il_hul) as total_count
+               FROM co_15_minut c15
+               JOIN locations l ON c15.lokalizacja = l.name
+               WHERE l.id = %s AND l.device_id = %s
+               ORDER BY c15.date ASC, c15.czas ASC""",
             (_location_id, _device_id),
         )
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["Date", "Time Period", "Total"])
-        for date_val, hour, quarter, count in cur.fetchall():
-            h, q, c = int(hour), int(quarter), int(count)
-            ms = q * 15
-            eh, em = h, ms + 15
-            if em >= 60:
+        for date_val, time_val, count in cur.fetchall():
+            total_seconds = int(time_val.total_seconds())
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            
+            eh, em = h, m + 15
+            if em >= 60: 
                 em, eh = 0, (h + 1) % 24
-            date_str = date_val.strftime("%Y-%m-%d") if hasattr(date_val, "strftime") else str(date_val)
-            writer.writerow([date_str, f"{h:02d}:{ms:02d}-{eh:02d}:{em:02d}", c])
+                
+            date_str = date_val.strftime("%Y-%m-%d")
+            writer.writerow([date_str, f"{h:02d}:{m:02d}-{eh:02d}:{em:02d}", int(count)])
+            
         return StreamingResponse(
             io.BytesIO(buf.getvalue().encode()),
             media_type="text/csv",
@@ -329,7 +336,6 @@ async def export_detail():
 
 @app.post("/api/config")
 async def update_config(data: dict):
-    # Ścieżka do config.yaml jest teraz względna do głównego katalogu projektu
     config_path = os.path.join(_BASE, "config.yaml")
     
     if os.path.exists(config_path):

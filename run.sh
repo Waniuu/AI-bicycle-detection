@@ -41,4 +41,16 @@ echo "  Logs:       ${SCRIPT_DIR}/bicycle_counter.log"
 echo "=========================================="
 echo ""
 
-exec python3 "${SCRIPT_DIR}/bicycle_counter.py" "$@"
+
+
+# ---- URUCHAMIANIE AGENTA SYNCHRONIZACJI ----
+# 1. Uruchomienie agenta synchronizacji w tle przy użyciu środowiska venv
+echo "  Uruchamianie agenta synchronizacji API w tle..."
+"${SCRIPT_DIR}/venv/bin/python" "${SCRIPT_DIR}/sync_agent.py" &
+SYNC_PID=$!
+
+# 2. Zabezpieczenie zamykające agenta w momencie wyłączenia głównego programu
+trap "kill $SYNC_PID 2>/dev/null" EXIT
+
+# 3. Uruchomienie głównego skryptu licznika (zwykły, systemowy python3)
+python3 "${SCRIPT_DIR}/bicycle_counter.py" "$@"

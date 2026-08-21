@@ -1,111 +1,97 @@
-#!/usr/bin/env python3
-"""
-Sync Agent for Bicycle Counter
-
-Ten skrypt jest odpowiedzialny za okresowe wysyłanie zagregowanych danych
-z lokalnej bazy danych do centralnej bazy danych w siedzibie głównej.
-
-Działanie:
-1. Łączy się z lokalną bazą danych.
-2. Pobiera wszystkie rekordy z `quarterly_counts`, które nie zostały jeszcze zsynchronizowane (`synced_at IS NULL`).
-3. Łączy się z centralną bazą danych (HQ).
-4. Wysyła paczkę danych do centrali, używając `INSERT ... ON DUPLICATE KEY UPDATE`.
-5. Jeśli wysyłka się powiedzie, oznacza lokalne rekordy jako zsynchronizowane, ustawiając `synced_at`.
-
-Uruchamianie:
-Skrypt powinien być uruchamiany cyklicznie, np. co 15 minut za pomocą crona.
-*/15 * * * * /usr/bin/python3 /home/student/CounterProject/sync_agent.py >> /home/student/CounterProject/sync.log 2>&1
-"""
-
+import time
 import logging
-import os
-from datetime import datetime
-
+import requests
+import schedule
 import mysql.connector
 
-# --- Konfiguracja ---
-# W docelowym rozwiązaniu te dane powinny pochodzić z pliku config.yaml
-LOCAL_DB_CONFIG = {
-    "host": "127.0.0.1",
-    "port": 3306,
-    "user": "bikecounter",
-    "password": "BikeCount2026!",
-    "database": "bicycle_counter",
-}
-
-HQ_DB_CONFIG = {
-    "host": "192.168.1.100",  # Przykładowy adres IP serwera w centrali
-    "port": 3306,
-    "user": "hq_user",
-    "password": "HqPassword!",
-    "database": "hq_bicycle_counter",
-}
-
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sync.log")
-
+# --- LOGOWANIE ---
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s] %(levelname)-7s %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()],
-    datefmt="%Y-%m-%d %H:%M:%S"
+    format="[%(asctime)s] [AGENT API] %(message)s",
+    datefmt="%H:%M:%S"
 )
 
+# --- KONFIGURACJA LOKALNEJ BAZY ---
+DB_CONFIG = {
+    "host": "127.0.0.1",
+    "user": "bikecounter",
+    "password": "BikeCount2026!",
+    "database": "bicycle_counter"
+}
+
+# --- KONFIGURACJA DOCELOWEGO API  ---
+API_URL = "http://192.168.200.201/do_bazy_danych_api.php"
+API_HEADERS = {
+    "Content-Type": "application/json",
+    "X-API-Key": "klucz-1"
+}
+
 def run_sync():
-    logging.info("Starting sync process...")
-    local_conn = None
-    hq_conn = None
-
+    logging.info("Rozpoczynam synchronizację...")
+    conn = None
     try:
-        # 1. Połącz z lokalną bazą i pobierz dane do synchronizacji
-        local_conn = mysql.connector.connect(**LOCAL_DB_CONFIG)
-        local_cur = local_conn.cursor()
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cur = conn.cursor()
 
-        # Pobieramy wszystkie rekordy, które nie mają ustawionej daty synchronizacji
-        local_cur.execute("SELECT id, device_id, location_id, bucket_date, bucket_hour, bucket_quarter, total_count FROM quarterly_counts WHERE synced_at IS NULL")
-        records_to_sync = local_cur.fetchall()
+        cur.execute("SELECT id, location_id, date, czas, il_row, il_hul FROM co_15_minut WHERE synced_at IS NULL")
+        wiersze = cur.fetchall()
 
-        if not records_to_sync:
-            logging.info("No new records to sync. Exiting.")
+        if not wiersze:
+            logging.info("Brak nowych danych do wysłania.")
             return
 
-        logging.info(f"Found {len(records_to_sync)} records to synchronize.")
+        
+        paczka_danych = {
+            "miejsce": [],
+            "data_pomiaru": [],
+            "czas_pomiaru": [],
+            "ile_rowerow": [],
+            "ile_hulajnog": []
+        }
+        lista_id = []
+        
+        for wiersz in wiersze:
+            paczka_danych["miejsce"].append(wiersz[1])
+            paczka_danych["data_pomiaru"].append(str(wiersz[2]))
+            paczka_danych["czas_pomiaru"].append(str(wiersz[3]))
+            paczka_danych["ile_rowerow"].append(int(wiersz[4]))
+            paczka_danych["ile_hulajnog"].append(int(wiersz[5]))
+            
+            lista_id.append(wiersz[0])
 
-        # 2. Połącz z bazą w centrali i wyślij dane
-        hq_conn = mysql.connector.connect(**HQ_DB_CONFIG)
-        hq_cur = hq_conn.cursor()
-
-        # Używamy `executemany` do wydajnego wstawienia wielu rekordów
-        # Zakładamy, że tabela w centrali ma identyczną strukturę
-        insert_query = """
-            INSERT INTO quarterly_counts (device_id, location_id, bucket_date, bucket_hour, bucket_quarter, total_count)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE total_count = total_count + VALUES(total_count)
-        """
-        # Przekształcamy rekordy, aby pasowały do zapytania (pomijamy lokalne ID)
-        hq_data = [r[1:] for r in records_to_sync]
-        hq_cur.executemany(insert_query, hq_data)
-        hq_conn.commit()
-        logging.info(f"Successfully sent {hq_cur.rowcount} operations to HQ database.")
-
-        # 3. Oznacz lokalne rekordy jako zsynchronizowane
-        record_ids = [r[0] for r in records_to_sync]
-        update_query = f"UPDATE quarterly_counts SET synced_at = %s WHERE id IN ({','.join(['%s']*len(record_ids))})"
-        local_cur.execute(update_query, [datetime.now()] + record_ids)
-        local_conn.commit()
-        logging.info(f"Marked {local_cur.rowcount} local records as synced.")
-
-    except mysql.connector.Error as err:
-        logging.error(f"Database error during sync: {err}")
-        if hq_conn:
-            hq_conn.rollback()
+        odpowiedz = requests.post(API_URL, json=paczka_danych, headers=API_HEADERS, timeout=10)
+        
+        if odpowiedz.status_code in [200, 201]:
+            placeholders = ','.join(['%s'] * len(lista_id))
+            zapytanie_update = f"UPDATE co_15_minut SET synced_at = NOW() WHERE id IN ({placeholders})"
+            cur.execute(zapytanie_update, lista_id)
+            conn.commit()
+            logging.info(f"Sukces: Wysłano i oznaczono {len(lista_id)} pomiarów. Odpowiedź serwera: {odpowiedz.text.strip()}")
+        else:
+            logging.error(f"Błąd API: Zwróciło kod {odpowiedz.status_code}. Treść: {odpowiedz.text}")
+            
+    except mysql.connector.Error as db_err:
+        logging.error(f"Błąd lokalnej bazy danych: {db_err}")
+    except requests.exceptions.RequestException as req_err:
+        logging.error(f"Błąd połączenia z siecią/API: {req_err}")
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        logging.error(f"Nieoczekiwany błąd programu: {e}")
+        
     finally:
-        if local_conn and local_conn.is_connected():
-            local_conn.close()
-        if hq_conn and hq_conn.is_connected():
-            hq_conn.close()
-        logging.info("Sync process finished.")
+        if conn and conn.is_connected():
+            conn.close()
+
+def uruchom_petle_agenta():
+    logging.info("Uruchamiam Agenta Synchronizacji...")
+    run_sync() 
+    schedule.every(15).minutes.do(run_sync)
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 if __name__ == "__main__":
-    run_sync()
+    try:
+        uruchom_petle_agenta()
+    except KeyboardInterrupt:
+        logging.info("Agent zatrzymany przez użytkownika.")

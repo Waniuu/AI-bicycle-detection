@@ -6,6 +6,9 @@ build/
 DeepStream-Yolo/
 *.so
 
+#Enviroment
+venv/
+
 # Logs & output data
 *.log
 *.csv

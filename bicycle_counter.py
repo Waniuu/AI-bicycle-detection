@@ -266,8 +266,7 @@ def main():
 
             consecutive_failures = 0
             state.camera_ok = True
-           # Próg pewności (0.40 zgodnie z wykresem F1-curve)
-            current_conf = 0.40
+            current_conf = CFG.get("model", {}).get("min_confidence", 0.40) # Pobieramy z config.yaml, domyślnie 0.40
             results = model(
                 frame, verbose=False, conf=current_conf
             )  # Wykrycie obiektów
@@ -372,16 +371,6 @@ def main():
                 if w > max_w or h > max_h:
                     LOG.debug("Filtered out object due to excessive size (w=%d, h=%d)", w, h)
                     continue
-
-
-                # --- FILTR PROPORCJI DLA HULAJNÓG (HEURYSTYKA) ---
-                # Jeśli obiekt jest sklasyfikowany jako hulajnoga, ale ma proporcje człowieka,
-                # to prawdopodobnie jest to błędna klasyfikacja.
-                if class_name == "e-scooter":
-                    max_ar_scooter = filters_cfg.get("max_aspect_ratio_scooter", 2.0)
-                    if (h / w) > max_ar_scooter:
-                        LOG.debug("Filtered out potential misclassified e-scooter (aspect ratio %.2f > %.2f)", (h / w), max_ar_scooter)
-                        continue # Pomijamy ten obiekt
 
                 # --- FILTR STABILNOŚCI ŚLEDZENIA (PERSISTENCE) ---
                 # Obiekt musi być śledzony przez określony czas, zanim zostanie zliczony.

@@ -1,4 +1,4 @@
-version: '3.0'
+version: '3.0.2'
 
 # --- MODEL AI ---
 model:
@@ -30,9 +30,8 @@ track_iou_threshold: 0.10
 filters:
   min_width: 30       # Minimalna szerokość obiektu (w pikselach), aby był brany pod uwagę
   min_height: 30      # Minimalna wysokość obiektu (w pikselach), aby był brany pod uwagę
-  max_width: 641      # Maksymalna szerokość obiektu (w pikselach), aby był brany pod uwagę (domyślnie nieco więcej niż szerokość kamery)
-  max_height: 481     # Maksymalna wysokość obiektu (w pikselach), aby był brany pod uwagę (domyślnie nieco więcej niż wysokość kamery)
-  max_aspect_ratio_scooter: 2.0 # Maksymalny stosunek wysokości do szerokości dla hulajnogi. Obiekty wyższe zostaną odrzucone.
+  max_width: 630      # Maksymalna szerokość obiektu (w pikselach), aby był brany pod uwagę (np. 630 dla kamery 640px)
+  max_height: 470     # Maksymalna wysokość obiektu (w pikselach), aby był brany pod uwagę (np. 470 dla kamery 480px)
 
 dedup_distance: 150
 dedup_ttl: 3.0
