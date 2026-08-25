@@ -1,13 +1,18 @@
 """
 FastAPI dashboard server for the bicycle & scooter counter v3.0.
-  GET /          - Live dashboard (HTML)
-  GET /video     - MJPEG stream
-  GET /stats     - JSON stats (w tym logi terminala, OSD i config)
-  GET /health    - Health check JSON
-  GET /database  - Database viewer (HTML)
+  GET /              - Live dashboard (HTML)
+  GET /video         - MJPEG stream
+  GET /stats         - JSON stats (w tym logi terminala, OSD i config)
+  GET /health        - Health check JSON
+  GET /database      - Database viewer (HTML)
   GET /api/crossings /api/quarterly - JSON data
   GET /export/csv /export/detail    - CSV downloads
-  POST /api/config                  - Zmiana ustawień na żywo
+  POST /api/config                  - Zmiana ustawień (RAM / Disk)
+  POST /api/config/reset            - Reset z pliku config.yaml
+  GET /api/models                   - Lista modeli AI i aktywny model
+  POST /api/models/select           - Zmiana aktywnego silnika AI
+  GET /api/calibration/files        - Lista plików wideo z folderu
+  POST /api/calibration/select      - Wybór aktywnego pliku do pętli
 """
 
 import csv
@@ -18,6 +23,7 @@ import logging
 import yaml
 from datetime import datetime
 
+import cv2
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -26,7 +32,13 @@ import uvicorn
 
 LOG = logging.getLogger("bike_counter")
 
+# Główny katalog projektu na Jetsonie
+PROJECT_ROOT = "/home/student/CounterProject"
+CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, "config.yaml")
+
 _BASE = os.path.dirname(os.path.abspath(__file__))
+SAMPLES_DIR = os.path.join(PROJECT_ROOT, "calibration_samples")
+os.makedirs(SAMPLES_DIR, exist_ok=True)
 
 app = FastAPI(title="Mobility Counter", version="3.0")
 
@@ -37,7 +49,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-templates = Jinja2Templates(directory=os.path.join(_BASE, "Dashboard/templates"))
+# Szablony HTML (dostosowane ścieżki)
+templates_dir = os.path.join(PROJECT_ROOT, "Dashboard", "templates")
+if not os.path.exists(templates_dir):
+    templates_dir = os.path.join(_BASE, "Dashboard", "templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 _state = None
 _db = None
@@ -51,23 +67,20 @@ def set_shared_state(s):
     global _state
     _state = s
 
-
 def set_db(db, location_id, device_id=None):
     global _db, _location_id, _device_id
     _db = db
     _location_id = location_id
     _device_id = device_id
 
-
 def set_config(cfg):
     global _config
     _config = cfg
 
-
 def get_recent_logs(lines_count=15):
     log_path = _config.get("log_file")
     if not log_path:
-        log_path = os.path.join(_BASE, "bicycle_counter.log")
+        log_path = os.path.join(PROJECT_ROOT, "bicycle_counter.log")
     if not os.path.exists(log_path):
         return ["Waiting for log file..."]
     try:
@@ -76,7 +89,6 @@ def get_recent_logs(lines_count=15):
             return [line.strip() for line in lines[-lines_count:]]
     except Exception as e:
         return [f"Error reading logs: {str(e)}"]
-
 
 def run():
     host = _config.get("dashboard_host", "0.0.0.0")
@@ -90,6 +102,8 @@ def _get_stats():
         return {"error": "Pipeline not running"}
     
     with _state.lock:
+        cfg = getattr(_state, "config", {})
+        mdl_cfg = cfg.get("model", {})
         result = {
             "bicycle_count": getattr(_state, "bicycle_count", 0),
             "scooter_count": getattr(_state, "scooter_count", 0),
@@ -101,9 +115,10 @@ def _get_stats():
             "time_synced": datetime.now().year >= 2024,
             "calibration_mode": getattr(_state, "calibration_mode", False),
             "sample_recording": getattr(_state, "sample_recording", False),
-            "sample_exists": os.path.exists("calibration_sample.mp4"),
-            "osd": _state.config.get("osd", {}) if hasattr(_state, "config") else {},
-            "config": _state.config if hasattr(_state, "config") else {},
+            "current_sample_file": getattr(_state, "calib_file_name", "None"),
+            "osd": cfg.get("osd", {}),
+            "config": cfg,
+            "active_model": mdl_cfg.get("active_model", "yolo11s_scooter"),
             "calib_paused": getattr(_state, "calib_paused", False),
             "calib_frame": getattr(_state, "calib_current_frame", 0),
             "calib_total_frames": getattr(_state, "calib_total_frames", 0),
@@ -328,20 +343,102 @@ async def export_detail():
         conn.close()
 
 
-@app.post("/api/config")
-async def update_config(data: dict):
-    config_path = os.path.join(_BASE, "config.yaml")
+@app.get("/api/models")
+async def get_models():
+    # Zawsze czytaj bieżący stan z RAM-u, unikaj błędów z plikami!
+    if _state and hasattr(_state, "config"):
+        cfg = _state.config
+    else:
+        cfg = _config.copy()
+
+    model_cfg = cfg.get("model", {})
+    active = model_cfg.get("active_model", "yolo11s_scooter")
+    models = model_cfg.get("available_models", {})
+
+    # Bezpieczny fallback na pliki .engine
+    if not models:
+        models = {
+            "yolo11s_scooter": {
+                "name": "YOLO11s (Rowery + Hulajnogi)",
+                "path": "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine",
+                "supports_scooters": True
+            },
+            "yolo11n_base": {
+                "name": "YOLO11n (Tylko rowery)",
+                "path": "/home/student/CounterProject/Silnik V2/yolo11n.engine",
+                "supports_scooters": False
+            }
+        }
+
+    return JSONResponse({"active": active, "models": models})
+
+
+@app.post("/api/models/select")
+async def select_model(data: dict):
+    model_key = data.get("model_key")
+    if not model_key:
+        return {"status": "error", "message": "No model_key specified"}
     
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
+    cfg = {}
+    if os.path.exists(CONFIG_FILE_PATH):
+        with open(CONFIG_FILE_PATH, "r") as f:
             cfg = yaml.safe_load(f) or {}
     else:
-        cfg = _config
+        cfg = _config.copy()
 
-    if "tracker" not in cfg: cfg["tracker"] = {}
-    if "model" not in cfg: cfg["model"] = {}
-    if "filters" not in cfg: cfg["filters"] = {}
-    if "osd" not in cfg: cfg["osd"] = {}
+    if "model" not in cfg:
+        cfg["model"] = {}
+
+    available = cfg["model"].get("available_models", {})
+    if not available:
+        available = {
+            "yolo11s_scooter": {
+                "name": "YOLO11s (Rowery + Hulajnogi)",
+                "path": "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine",
+                "supports_scooters": True
+            },
+            "yolo11n_base": {
+                "name": "YOLO11n (Tylko rowery)",
+                "path": "/home/student/CounterProject/Silnik V2/yolo11n.engine",
+                "supports_scooters": False
+            }
+        }
+        cfg["model"]["available_models"] = available
+
+    if model_key not in available:
+        return {"status": "error", "message": f"Model key '{model_key}' not found in configuration"}
+
+    cfg["model"]["active_model"] = model_key
+    cfg["model_path"] = available[model_key]["path"]
+
+    # Aktualizacja w pamięci
+    if _state and hasattr(_state, "config"):
+        with _state.lock:
+            _state.config = cfg
+            _state.model_reload_requested = True
+
+    # Zapis na stałe do poprawnej ścieżki
+    with open(CONFIG_FILE_PATH, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False)
+
+    LOG.info("Active model changed to '%s' (%s)", model_key, available[model_key]["name"])
+    return {"status": "ok", "active_model": model_key}
+
+
+@app.post("/api/config")
+async def update_config(data: dict):
+    persist = data.get("persist", True)
+
+    cfg = {}
+    if os.path.exists(CONFIG_FILE_PATH):
+        with open(CONFIG_FILE_PATH, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = _config.copy()
+
+    for sec in ["tracker", "model", "filters", "osd"]:
+        if sec not in cfg:
+            cfg[sec] = {}
 
     for key in ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"]:
         if key in data:
@@ -376,11 +473,55 @@ async def update_config(data: dict):
     if _state and hasattr(_state, "config"):
         _state.config = cfg
 
-    with open(config_path, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False)
+    if persist:
+        with open(CONFIG_FILE_PATH, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+        LOG.info("Config permanently saved to disk: %s", data)
+    else:
+        LOG.info("Config applied temporarily in RAM: %s", data)
 
-    LOG.info("Config updated from dashboard: %s", data)
+    return {"status": "ok", "persisted": persist, "config": cfg}
+
+
+@app.post("/api/config/reset")
+async def reset_config():
+    if os.path.exists(CONFIG_FILE_PATH):
+        with open(CONFIG_FILE_PATH, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = _config.copy()
+
+    if _state and hasattr(_state, "config"):
+        _state.config = cfg
+
+    LOG.info("Config reloaded from config.yaml file.")
     return {"status": "ok", "config": cfg}
+
+
+@app.get("/api/calibration/files")
+async def get_calibration_files():
+    files = [f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
+    files.sort(reverse=True)
+    return {"files": files}
+
+
+@app.post("/api/calibration/select")
+async def select_calibration_file(data: dict):
+    filename = data.get("filename")
+    if not filename:
+        return {"status": "error", "message": "No filename specified"}
+    
+    file_path = os.path.join(SAMPLES_DIR, filename)
+    if not os.path.exists(file_path):
+        return {"status": "error", "message": "File does not exist"}
+    
+    if _state is not None:
+        with _state.lock:
+            _state.calib_file_path = file_path
+            _state.calib_file_name = filename
+            _state.calib_reload_requested = True
+        return {"status": "ok", "active_file": filename}
+    return {"status": "error", "message": "Pipeline not running"}
 
 
 @app.post("/api/calibration/record")
@@ -410,6 +551,7 @@ async def calibration_playback(data: dict):
     elif action == "pause":
         _state.calib_paused = True
     elif action == "step":
+        _state.calib_paused = True
         _state.calib_step = data.get("frames", 1)
     elif action == "seek":
         _state.calib_seek_frame = data.get("frame", 0)
@@ -423,13 +565,56 @@ async def calibration_playback(data: dict):
 
 @app.post("/api/calibration/upload")
 async def calibration_upload(file: UploadFile = File(...)):
-    file_path = "calibration_sample.mp4"
+    clean_name = os.path.basename(file.filename)
+    temp_path = os.path.join(SAMPLES_DIR, f"temp_{clean_name}")
+    final_path = os.path.join(SAMPLES_DIR, clean_name)
+    
+    target_w = _config.get("camera_width", 640)
+    target_h = _config.get("camera_height", 480)
+
     try:
         contents = await file.read()
-        with open(file_path, "wb") as f:
+        with open(temp_path, "wb") as f:
             f.write(contents)
-        LOG.info("Calibration video sample uploaded successfully: %s", file.filename)
-        return {"status": "ok", "message": f"File {file.filename} uploaded as calibration_sample.mp4"}
+
+        cap_in = cv2.VideoCapture(temp_path)
+        if not cap_in.isOpened():
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return {"status": "error", "message": "Cannot decode uploaded video file"}
+
+        fps = cap_in.get(cv2.CAP_PROP_FPS) or 15.0
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(final_path, fourcc, fps, (target_w, target_h))
+
+        while True:
+            ret, frame = cap_in.read()
+            if not ret:
+                break
+            resized_frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            out.write(resized_frame)
+
+        cap_in.release()
+        out.release()
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        LOG.info("Calibration sample uploaded & scaled to %dx%d: %s", target_w, target_h, clean_name)
+        
+        if _state is not None:
+            with _state.lock:
+                _state.calib_file_path = final_path
+                _state.calib_file_name = clean_name
+                _state.calib_reload_requested = True
+
+        return {
+            "status": "ok", 
+            "message": f"File {clean_name} uploaded & scaled to {target_w}x{target_h}", 
+            "filename": clean_name
+        }
     except Exception as e:
-        LOG.error("Failed to upload calibration sample: %s", str(e))
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        LOG.error("Failed to upload and scale video: %s", str(e))
         return {"status": "error", "message": str(e)}

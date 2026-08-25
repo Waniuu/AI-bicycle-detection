@@ -17,24 +17,28 @@ header .db-btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding
 header .db-btn:hover{background:#161b22;border-color:#58a6ff}
 .time-warning{background:#f85149;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:bold;margin-left:10px;display:none}
 
-.container{padding:16px;max-width:1400px;margin:0 auto}
-.top-row{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-bottom:16px;align-items:start}
+.container{padding:16px;max-width:1440px;margin:0 auto}
 
-.left-column{display:flex;flex-direction:column;gap:16px}
-.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}
-.video-panel img{width:100%;height:auto;display:block;object-fit:contain;background:#000}
+.top-row{display:grid;grid-template-columns:minmax(0, 1fr) 380px;gap:16px;margin-bottom:16px;align-items:start}
+
+.left-column{display:flex;flex-direction:column;gap:16px;min-width:0}
+.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;max-height:540px;border:1px solid #30363d}
+.video-panel img{width:100%;height:100%;display:block;object-fit:contain;background:#000}
 .video-panel .badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:4px;font-size:0.7rem;color:#3fb950;font-weight:600}
 
 .log-panel{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;height:240px;overflow-y:auto;font-family:monospace;font-size:0.75rem;white-space:pre-wrap;color:#c9d1d9}
 .log-panel h3{margin-top:0;margin-bottom:8px;font-size:0.75rem;color:#8b949e;font-family:'Segoe UI',system-ui,sans-serif}
 
-.right-column{display:flex;flex-direction:column;gap:12px}
+.right-column{display:flex;flex-direction:column;gap:12px;min-width:0}
 .card-settings{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
 .card-settings h3{margin-top:0;margin-bottom:12px;font-size:0.85rem;color:#e0e0e0}
 .form-group{margin-bottom:10px}
 .form-group label{display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.75rem;color:#8b949e}
 .form-group span.val{color:#58a6ff;font-weight:bold}
 .form-group input[type="range"]{width:100%;cursor:pointer;accent-color:#238636}
+select.custom-select{width:100%;padding:6px 10px;border-radius:4px;border:1px solid #30363d;background:#0d1117;color:white;font-size:0.8rem;outline:none;}
+select.custom-select:focus{border-color:#58a6ff;}
+
 .btn-save{width:100%;padding:8px;background:#238636;color:white;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:0.8rem;margin-top:4px}
 .btn-save:hover{background:#2ea043}
 
@@ -90,7 +94,7 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
       </div>
     </div>
 
-    <!-- Prawa strona: 1. Kalibracja na górze, 2. Ustawienia Live pod nią, 3. OSD, 4. Statystyki -->
+    <!-- Prawa strona: 1. Kalibracja, 2. Ustawienia Live, 3. OSD, 4. Statystyki -->
     <div class="right-column">
       
       <!-- 1. Calibration & Testing -->
@@ -104,7 +108,12 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
             <label for="checkCalibMode" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Calibration Loopback Mode</label>
           </div>
 
-          <div id="calibPlaybackControls" style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <label style="font-size: 0.75rem; color: #8b949e;">Select Test Video:</label>
+            <select id="selectCalibFile" class="custom-select"></select>
+          </div>
+
+          <div id="calibPlaybackControls" style="display: flex; gap: 8px; align-items: center; margin-top: 2px;">
             <button type="button" id="btnPrevFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏪ -1 Frame</button>
             <button type="button" id="btnPlayPause" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏯️ Play/Pause</button>
             <button type="button" id="btnNextFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏩ +1 Frame</button>
@@ -115,9 +124,9 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
             <div style="font-size: 0.75rem; color: #8b949e;">Frame: <span id="calibFrameLabel">0 / 0</span></div>
           </div>
 
-          <div style="border-top: 1px dashed #30363d; margin-top: 8px; padding-top: 8px;">
-            <label style="font-size: 0.75rem; color: #8b949e; display: block; margin-bottom: 4px;">Upload Custom test video (MP4/AVI):</label>
-            <input type="file" id="calibUploadInput" accept="video/mp4,video/avi" style="font-size: 0.75rem; color: #8b949e; display: block; width: 100%;">
+          <div style="border-top: 1px dashed #30363d; margin-top: 6px; padding-top: 8px;">
+            <label style="font-size: 0.75rem; color: #8b949e; display: block; margin-bottom: 4px;">Upload new video sample:</label>
+            <input type="file" id="calibUploadInput" accept="video/mp4,video/avi,video/mov,video/mkv" style="font-size: 0.75rem; color: #8b949e; display: block; width: 100%;">
             <button type="button" id="btnUploadVideo" class="btn-save" style="background: #238636; margin-top: 4px; padding: 4px 8px; font-size: 0.75rem; width: auto; display: inline-block;">Upload Video</button>
           </div>
 
@@ -129,8 +138,17 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
 
       <!-- 2. Live Counting Settings -->
       <div class="card-settings">
-        <h3>⚙️ Live Counting Settings</h3>
-        <form id="liveConfigForm">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin: 0;">⚙️ Live Counting Settings</h3>
+          <span id="liveSyncBadge" style="font-size: 0.65rem; background: #238636; color: white; padding: 1px 6px; border-radius: 4px; display: none;">Live Synced</span>
+        </div>
+        <form id="liveConfigForm" onsubmit="return false;">
+          
+          <div class="form-group" style="border-bottom: 1px dashed #30363d; padding-bottom: 10px; margin-bottom: 12px;">
+            <label style="color: #58a6ff; font-weight: bold;">Active AI Model:</label>
+            <select id="selectActiveModel" class="custom-select" style="border-color: #58a6ff;"></select>
+          </div>
+
           <div class="form-group">
             <label>Line Y Position: <span class="val" id="lbl_line_y">240px</span></label>
             <input type="range" id="input_line_y" min="0" max="720" value="240">
@@ -181,7 +199,10 @@ td{padding:6px 8px;border-bottom:1px solid #21262d}
             <input type="range" id="input_min_move" min="0" max="200" value="0">
           </div>
 
-          <button type="submit" class="btn-save">Save Live Settings</button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+            <button type="button" id="btnSavePerm" class="btn-save" style="background: #238636; margin-top: 0;">💾 Save to Disk</button>
+            <button type="button" id="btnResetDefaults" class="btn-save" style="background: #da3633; margin-top: 0;">🔄 Reload Config</button>
+          </div>
         </form>
       </div>
 
@@ -272,7 +293,9 @@ const quarterlyChart=new Chart(document.getElementById('quarterlyChart'),{
 let prevCount=0;
 let initialOsdLoaded=false;
 let initialSlidersLoaded=false;
+let initialModelsLoaded=false;
 let calibPausedGlobal=false;
+let debounceTimer=null;
 
 const sliderConfigs = [
   { id: 'input_line_y', lbl: 'lbl_line_y', unit: 'px' },
@@ -287,14 +310,120 @@ const sliderConfigs = [
   { id: 'input_min_move', lbl: 'lbl_min_move', unit: 'px' }
 ];
 
+function getPayloadData() {
+  return {
+    crossing_line_y: parseInt(document.getElementById('input_line_y').value),
+    line_x1: parseInt(document.getElementById('input_line_x1').value),
+    line_x2: parseInt(document.getElementById('input_line_x2').value),
+    min_confidence: parseFloat(document.getElementById('input_min_conf').value),
+    min_width: parseInt(document.getElementById('input_min_w').value),
+    max_width: parseInt(document.getElementById('input_max_w').value),
+    min_height: parseInt(document.getElementById('input_min_h').value),
+    max_height: parseInt(document.getElementById('input_max_h').value),
+    min_aspect_ratio: parseFloat(document.getElementById('input_min_ar').value),
+    min_movement_px: parseInt(document.getElementById('input_min_move').value)
+  };
+}
+
+function triggerLiveRamUpdate() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(async () => {
+    const payload = getPayloadData();
+    payload.persist = false;
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const badge = document.getElementById('liveSyncBadge');
+      if(badge) {
+        badge.style.display = 'inline-block';
+        setTimeout(() => { badge.style.display = 'none'; }, 1000);
+      }
+    } catch(e){}
+  }, 60);
+}
+
 sliderConfigs.forEach(s => {
   const el = document.getElementById(s.id);
   const lbl = document.getElementById(s.lbl);
   if(el && lbl) {
     el.addEventListener('input', (e) => {
       lbl.textContent = s.format ? s.format(e.target.value) : `${e.target.value}${s.unit}`;
+      triggerLiveRamUpdate();
     });
   }
+});
+
+async function loadModelsList() {
+  try {
+    const r = await fetch('/api/models');
+    const d = await r.json();
+    if (d.models) {
+      const select = document.getElementById('selectActiveModel');
+      select.innerHTML = Object.entries(d.models).map(([key, info]) => 
+        `<option value="${key}">${info.name || key}</option>`
+      ).join('');
+      if (d.active) {
+        select.value = d.active;
+      }
+      initialModelsLoaded = true;
+    }
+  } catch(e){}
+}
+loadModelsList();
+
+document.getElementById('selectActiveModel').addEventListener('change', async (e) => {
+  const model_key = e.target.value;
+  try {
+    const r = await fetch('/api/models/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_key })
+    });
+    const res = await r.json();
+    if (res.status === 'ok') {
+      const badge = document.getElementById('liveSyncBadge');
+      if (badge) {
+        badge.textContent = "Model Switched";
+        badge.style.display = 'inline-block';
+        setTimeout(() => { 
+          badge.textContent = "Live Synced";
+          badge.style.display = 'none'; 
+        }, 1500);
+      }
+    }
+  } catch(e){
+    alert("❌ Failed to switch model.");
+  }
+});
+
+async function loadSampleFiles() {
+  try {
+    const r = await fetch('/api/calibration/files');
+    const d = await r.json();
+    if(d.files) {
+      const select = document.getElementById('selectCalibFile');
+      const currentSelected = select.value;
+      select.innerHTML = d.files.map(f => `<option value="${f}">${f}</option>`).join('');
+      if(currentSelected && d.files.includes(currentSelected)) {
+        select.value = currentSelected;
+      }
+    }
+  } catch(e){}
+}
+loadSampleFiles();
+
+document.getElementById('selectCalibFile').addEventListener('change', async (e) => {
+  const filename = e.target.value;
+  try {
+    await fetch('/api/calibration/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename })
+    });
+  } catch(e){}
 });
 
 async function fetchStats(){
@@ -327,6 +456,13 @@ async function fetchStats(){
     const timeWarning = document.getElementById('timeWarning');
     if (d.time_synced === false) timeWarning.style.display = 'inline-block';
     else timeWarning.style.display = 'none';
+
+    if (d.active_model && initialModelsLoaded) {
+      const selectModel = document.getElementById('selectActiveModel');
+      if (document.activeElement !== selectModel) {
+        selectModel.value = d.active_model;
+      }
+    }
 
     if (d.osd && !initialOsdLoaded) {
       ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"].forEach(key => {
@@ -368,7 +504,6 @@ async function fetchStats(){
 
     const calibMode = d.calibration_mode || false;
     const sampleRec = d.sample_recording || false;
-    const sampleExists = d.sample_exists || false;
 
     const checkCalib = document.getElementById('checkCalibMode');
     if (document.activeElement !== checkCalib) {
@@ -380,10 +515,10 @@ async function fetchStats(){
       calibStatus.textContent = "Recording sample...";
       calibStatus.style.color = "#f85149";
     } else if (calibMode) {
-      calibStatus.textContent = "Loop active (calibration)";
+      calibStatus.textContent = `Loop: ${d.current_sample_file || 'active'}`;
       calibStatus.style.color = "#d2a8ff";
     } else {
-      calibStatus.textContent = sampleExists ? "Live camera (sample exists)" : "Live camera";
+      calibStatus.textContent = "Live camera";
       calibStatus.style.color = "#3fb950";
     }
 
@@ -449,44 +584,41 @@ async function fetchLogs() {
 setInterval(fetchLogs, 2000);
 fetchLogs();
 
-document.getElementById('liveConfigForm').addEventListener('submit', async (e) => {
-    e.preventDefault(); 
+document.getElementById('btnSavePerm').addEventListener('click', async () => {
+  const payload = getPayloadData();
+  payload.persist = true;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) alert("💾 Settings saved permanently to config.yaml!");
+  } catch(e) {
+    alert("❌ Error saving to disk.");
+  }
+});
 
-    const payload = {
-      crossing_line_y: parseInt(document.getElementById('input_line_y').value),
-      line_x1: parseInt(document.getElementById('input_line_x1').value),
-      line_x2: parseInt(document.getElementById('input_line_x2').value),
-      min_confidence: parseFloat(document.getElementById('input_min_conf').value),
-      min_width: parseInt(document.getElementById('input_min_w').value),
-      max_width: parseInt(document.getElementById('input_max_w').value),
-      min_height: parseInt(document.getElementById('input_min_h').value),
-      max_height: parseInt(document.getElementById('input_max_h').value),
-      min_aspect_ratio: parseFloat(document.getElementById('input_min_ar').value),
-      min_movement_px: parseInt(document.getElementById('input_min_move').value)
-    };
-
-    try {
-        const response = await fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-            alert("✅ Settings updated successfully!");
-        } else {
-            alert("❌ Error saving settings.");
-        }
-    } catch (err) {
-        alert("❌ Connection error to the server.");
+document.getElementById('btnResetDefaults').addEventListener('click', async () => {
+  if (!confirm("Discard unsaved changes and reload settings from config.yaml?")) return;
+  try {
+    const res = await fetch('/api/config/reset', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.config) {
+      initialSlidersLoaded = false;
+      alert("🔄 Settings reloaded from config.yaml!");
     }
+  } catch (err) {
+    alert("❌ Error reloading configuration from file.");
+  }
 });
 
 document.getElementById('btnRecordSample').addEventListener('click', async () => {
     try {
         const response = await fetch('/api/calibration/record', { method: 'POST' });
         if (response.ok) {
-            alert("✅ Recording request sent! Watch status below.");
+            alert("✅ Recording 10s sample started!");
+            setTimeout(loadSampleFiles, 11000);
         } else {
             alert("❌ Error sending record request.");
         }
@@ -558,7 +690,7 @@ document.getElementById('calibScrubber').addEventListener('input', async (e) => 
 document.getElementById('btnUploadVideo').addEventListener('click', async () => {
     const fileInput = document.getElementById('calibUploadInput');
     if (fileInput.files.length === 0) {
-        alert("Please select an MP4 or AVI file first!");
+        alert("Please select a video file first!");
         return;
     }
     const formData = new FormData();
@@ -571,7 +703,9 @@ document.getElementById('btnUploadVideo').addEventListener('click', async () => 
         });
         const res = await response.json();
         if (response.ok && res.status === "ok") {
-            alert("✅ Video uploaded successfully as calibration_sample.mp4!");
+            alert("✅ Video uploaded successfully!");
+            await loadSampleFiles();
+            document.getElementById('selectCalibFile').value = res.filename;
         } else {
             alert("❌ Upload failed: " + (res.message || "Unknown error"));
         }
@@ -589,7 +723,7 @@ document.getElementById('btnUploadVideo').addEventListener('click', async () => 
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ [key]: enabled })
+                    body: JSON.stringify({ [key]: enabled, persist: true })
                 });
                 if (!response.ok) {
                     alert("❌ Error saving OSD setting.");

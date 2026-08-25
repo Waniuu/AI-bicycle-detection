@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Bicycle Counter v2.0 — Production-grade real-time bicycle counting.
-Counts unique bicycles detected on screen. Each bike is counted exactly once.
+Bicycle Counter v3.0 — Production-grade real-time bicycle & scooter counting.
+Counts unique bicycles and scooters detected on screen. Each vehicle is counted exactly once.
 Serves live video + analytics at http://localhost:8080
 """
 
@@ -12,6 +12,7 @@ import time
 import io
 import logging
 import threading
+import yaml
 from collections import deque, Counter
 from datetime import datetime
 
@@ -36,7 +37,11 @@ if CFG["log_file"]:
     _fh.setFormatter(_fmt)
     LOG.addHandler(_fh)
 
-SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
+_BASE = os.path.dirname(os.path.abspath(__file__))
+SCREENSHOT_DIR = os.path.join(_BASE, "screenshots")
+SAMPLES_DIR = os.path.join(_BASE, "calibration_samples")
+os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+os.makedirs(SAMPLES_DIR, exist_ok=True)
 
 # ── Globals ───────────────────────────────────────────────────────
 _shutdown = threading.Event()
@@ -145,7 +150,6 @@ class Tracker:
                     "track_obj": track
                 })
 
-        # 2. Rejestracja nowych pojazdów
         for j, det in enumerate(detections):
             if j in used:
                 continue
@@ -190,9 +194,17 @@ class SharedState:
         self.counted_positions = []
         self.start_time = time.time()
         self.camera_ok = False
+        
+        # Flagi dynamicznej zmiany modelu
+        self.model_reload_requested = False
+        
+        # Kalibracja & pliki
         self.record_sample_requested = False
         self.sample_recording = False
         self.calibration_mode = False
+        self.calib_file_path = None
+        self.calib_file_name = None
+        self.calib_reload_requested = False
         self.calib_paused = False
         self.calib_step = 0
         self.calib_seek_frame = -1
@@ -202,25 +214,83 @@ class SharedState:
 state = SharedState()
 
 
+def resolve_model_file(requested_path):
+    """Priorytetyzuje plik .engine, a w razie braku zwraca .pt"""
+    if requested_path.endswith(".pt"):
+        engine_path = requested_path.rsplit(".pt", 1)[0] + ".engine"
+        if os.path.exists(engine_path):
+            return engine_path
+    elif requested_path.endswith(".engine"):
+        if os.path.exists(requested_path):
+            return requested_path
+        pt_path = requested_path.rsplit(".engine", 1)[0] + ".pt"
+        if os.path.exists(pt_path):
+            LOG.warning("TensorRT .engine not found, falling back to: %s", pt_path)
+            return pt_path
+    return requested_path
+
+
+def get_model_definition():
+    config_path = os.path.join(_BASE, "config.yaml")
+    cfg_raw = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                cfg_raw = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+
+    model_sec = cfg_raw.get("model", {})
+    available = model_sec.get("available_models", {})
+    active_key = model_sec.get("active_model", "yolo11s_scooter")
+
+    if not available:
+        available = {
+            "yolo11s_scooter": {
+                "name": "YOLO11s (Rowery + Hulajnogi)",
+                "path": "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine",
+                "supports_scooters": True,
+                "bike_class_name": "cyclist",
+                "scooter_class_name": "e-scooter"
+            },
+            "yolo11n_base": {
+                "name": "YOLO11n (Tylko rowery)",
+                "path": "/home/student/CounterProject/Silnik V2/yolo11n.engine",
+                "supports_scooters": False,
+                "bike_class_name": "bicycle",
+                "scooter_class_name": None
+            }
+        }
+
+    if active_key in available:
+        info = available[active_key]
+    else:
+        active_key = next(iter(available))
+        info = available[active_key]
+
+    resolved_path = resolve_model_file(info["path"])
+    return active_key, info, resolved_path
+
+
 def draw_osd(img_pil, detections, total_count, person_detections=[]):
     draw = ImageDraw.Draw(img_pil)
     osd_cfg = state.config.get("osd", {})
+    tracker_cfg = state.config.get("tracker", {})
 
     if osd_cfg.get("show_line", True):
-        tracker_cfg = state.config.get("tracker", {})
-        if tracker_cfg.get("use_crossing_line", False):
-            line_y = tracker_cfg.get("crossing_line_y", 240)
-            line_x1 = tracker_cfg.get("line_x1", 0)
-            line_x2 = tracker_cfg.get("line_x2", img_pil.size[0])
-            draw.line([(line_x1, line_y), (line_x2, line_y)], fill="red", width=3)
-            for x in (line_x1, line_x2):
-                draw.line([(x - 5, line_y), (x + 5, line_y)], fill="red", width=2)
-                draw.line([(x, line_y - 5), (x, line_y + 5)], fill="red", width=2)
+        line_y = tracker_cfg.get("crossing_line_y", 240)
+        line_x1 = tracker_cfg.get("line_x1", 0)
+        line_x2 = tracker_cfg.get("line_x2", img_pil.size[0])
+        
+        draw.line([(line_x1, line_y), (line_x2, line_y)], fill="red", width=3)
+        for x in (line_x1, line_x2):
+            draw.line([(x - 5, line_y), (x + 5, line_y)], fill="red", width=2)
+            draw.line([(x, line_y - 5), (x, line_y + 5)], fill="red", width=2)
 
     if osd_cfg.get("show_hud", True):
         draw.text((10, 10), f"Vehicles: {total_count}", fill="yellow")
         if getattr(state, "calibration_mode", False):
-            draw.text((10, 25), "[CALIBRATION LOOP]", fill="yellow")
+            draw.text((10, 25), f"[CALIBRATION: {state.calib_file_name or 'loop'}]", fill="yellow")
 
     if osd_cfg.get("show_persons", False) and person_detections:
         for p in person_detections:
@@ -250,9 +320,6 @@ def draw_osd(img_pil, detections, total_count, person_detections=[]):
     return img_pil
 
 
-# ---------------------------------------------------------------------------
-# Camera reconnect helper
-# ---------------------------------------------------------------------------
 def open_camera():
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CFG["camera_width"])
@@ -262,32 +329,25 @@ def open_camera():
     return cap
 
 
-# ---------------------------------------------------------------------------
-# Signal handler
-# ---------------------------------------------------------------------------
 def _handle_signal(signum, frame):
     LOG.info("Shutdown signal received")
     _shutdown.set()
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def main():
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
     LOG.info("=" * 50)
-    LOG.info("Bicycle Counter v%s starting", CFG["version"])
+    LOG.info("Bicycle Counter v%s starting", CFG.get("version", "3.0"))
     LOG.info("=" * 50)
-    LOG.info("Camera: %dx%d @ %d fps (%s)", CFG["camera_width"], CFG["camera_height"], CFG["camera_fps"], CFG["camera_device"])
-    LOG.info("Model: %s", CFG["model_path"])
-    LOG.info("Device: %s | Location: %s", CFG["device_name"], CFG["location_name"])
 
-    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-
-    model = YOLO(CFG["model_path"])
-    LOG.info("YOLO model loaded")
+    # ── Odczyt i ładowanie modelu ───────────────────────────────────
+    active_key, model_info, model_path = get_model_definition()
+    LOG.info("Active model key: %s", active_key)
+    LOG.info("Loading YOLO model from: %s", model_path)
+    model = YOLO(model_path)
+    LOG.info("YOLO model loaded successfully (TensorRT=%s)", str(model_path.endswith('.engine')))
 
     from database import Database
     db = Database()
@@ -322,11 +382,37 @@ def main():
 
     try:
         while not _shutdown.is_set():
+            # Obsługa dynamicznej zmiany silnika w locie
+            if state.model_reload_requested:
+                with state.lock:
+                    state.model_reload_requested = False
+                    active_key, model_info, model_path = get_model_definition()
+
+                LOG.info("Reloading model dynamically to: %s", model_path)
+                try:
+                    model = YOLO(model_path)
+                    LOG.info("New model loaded successfully. Supports scooters: %s", model_info.get("supports_scooters"))
+                except Exception as e:
+                    LOG.error("Failed to reload model: %s", str(e))
+
             if state.calibration_mode:
-                if not calib_cap or not calib_cap.isOpened():
-                    calib_cap = cv2.VideoCapture("calibration_sample.mp4")
-                    if not calib_cap.isOpened():
-                        LOG.error("Failed to open calibration_sample.mp4, falling back to camera")
+                if state.calib_reload_requested or calib_cap is None or not calib_cap.isOpened():
+                    state.calib_reload_requested = False
+                    if calib_cap is not None:
+                        calib_cap.release()
+                    
+                    if not state.calib_file_path or not os.path.exists(state.calib_file_path):
+                        sample_files = [os.path.join(SAMPLES_DIR, f) for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
+                        if sample_files:
+                            sample_files.sort(key=os.path.getmtime, reverse=True)
+                            state.calib_file_path = sample_files[0]
+                            state.calib_file_name = os.path.basename(sample_files[0])
+                    
+                    if state.calib_file_path and os.path.exists(state.calib_file_path):
+                        calib_cap = cv2.VideoCapture(state.calib_file_path)
+                        LOG.info("Loaded calibration video: %s", state.calib_file_path)
+                    else:
+                        LOG.warning("No calibration video found in %s, falling back to camera", SAMPLES_DIR)
                         state.calibration_mode = False
             else:
                 if calib_cap is not None:
@@ -339,7 +425,7 @@ def main():
                 time.sleep(1.0 / vid_fps)
 
                 if state.calib_seek_frame >= 0:
-                    calib_cap.set(cv2.CAP_PROP_POS_FRAMES, state.calib_seek_frame)
+                    calib_cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, min(state.calib_total_frames - 1, state.calib_seek_frame)))
                     state.calib_seek_frame = -1
                     ret, frame = calib_cap.read()
                     if not ret:
@@ -347,8 +433,8 @@ def main():
                         ret, frame = calib_cap.read()
 
                 elif state.calib_step != 0:
-                    current_pos = int(calib_cap.get(cv2.CAP_PROP_POS_FRAMES))
-                    target_pos = max(0, min(state.calib_total_frames - 1, current_pos + state.calib_step))
+                    target_pos = state.calib_current_frame + state.calib_step
+                    target_pos = max(0, min(state.calib_total_frames - 1, target_pos))
                     calib_cap.set(cv2.CAP_PROP_POS_FRAMES, target_pos)
                     state.calib_step = 0
                     ret, frame = calib_cap.read()
@@ -371,7 +457,8 @@ def main():
                         ret, frame = calib_cap.read()
 
                 if ret:
-                    state.calib_current_frame = int(calib_cap.get(cv2.CAP_PROP_POS_FRAMES))
+                    pos = int(calib_cap.get(cv2.CAP_PROP_POS_FRAMES))
+                    state.calib_current_frame = max(0, pos - 1)
             else:
                 ret, frame = cap.read()
                 if not ret:
@@ -399,9 +486,14 @@ def main():
                 rec_fps = int(cap.get(cv2.CAP_PROP_FPS)) or 15
                 rec_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or frame.shape[1]
                 rec_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or frame.shape[0]
-                rec_writer = cv2.VideoWriter("calibration_sample.mp4", cv2.VideoWriter_fourcc(*'mp4v'), rec_fps, (rec_w, rec_h))
+                
+                timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                sample_file_name = f"sample_{timestamp_str}.mp4"
+                sample_file_path = os.path.join(SAMPLES_DIR, sample_file_name)
+                
+                rec_writer = cv2.VideoWriter(sample_file_path, cv2.VideoWriter_fourcc(*'mp4v'), rec_fps, (rec_w, rec_h))
                 rec_frames_left = 10 * rec_fps
-                LOG.info("Started recording calibration sample (10s, %d frames)...", rec_frames_left)
+                LOG.info("Recording 10s sample to %s (%d frames)...", sample_file_path, rec_frames_left)
 
             if state.sample_recording:
                 if rec_writer and rec_writer.isOpened():
@@ -411,7 +503,11 @@ def main():
                         rec_writer.release()
                         rec_writer = None
                         state.sample_recording = False
-                        LOG.info("Finished recording calibration sample.")
+                        LOG.info("Sample saved: %s", sample_file_name)
+                        with state.lock:
+                            state.calib_file_path = sample_file_path
+                            state.calib_file_name = sample_file_name
+                            state.calib_reload_requested = True
 
             current_conf = state.config.get("model", {}).get("min_confidence", 0.40)
             results = model(frame, verbose=False, conf=current_conf)
@@ -419,19 +515,28 @@ def main():
             raw_dets = []
             person_detections_in_frame = []
 
+            target_bike_cls = model_info.get("bike_class_name", "cyclist")
+            target_scooter_cls = model_info.get("scooter_class_name", "e-scooter")
+
             for r in results:
                 for box in r.boxes:
                     class_id = int(box.cls[0])
                     conf = float(box.conf[0])
                     bbox_xyxy = box.xyxy[0].cpu().numpy()
                     bx1, by1, bx2, by2 = bbox_xyxy
-                    class_name = model.names.get(class_id, "unknown")
+                    raw_class_name = model.names.get(class_id, "unknown")
 
-                    if class_name == "person":
+                    if raw_class_name == "person":
                         person_detections_in_frame.append({"bbox_xyxy": bbox_xyxy, "confidence": conf})
                         continue
 
-                    if class_name not in ["cyclist", "e-scooter"]:
+                    normalized_class_name = None
+                    if raw_class_name == target_bike_cls:
+                        normalized_class_name = "cyclist"
+                    elif target_scooter_cls and raw_class_name == target_scooter_cls:
+                        normalized_class_name = "e-scooter"
+
+                    if not normalized_class_name:
                         continue
 
                     raw_dets.append({
@@ -441,7 +546,7 @@ def main():
                         "bbox_xyxy": bbox_xyxy,
                         "confidence": conf,
                         "class_id": class_id,
-                        "class_name": class_name
+                        "class_name": normalized_class_name
                     })
 
                     state.total_detections += 1
@@ -457,7 +562,7 @@ def main():
             img_pil = Image.fromarray(img_rgb)
 
             current_tracker_cfg = state.config.get("tracker", {})
-            use_line = current_tracker_cfg.get("use_crossing_line", False)
+            use_line = current_tracker_cfg.get("use_crossing_line", True)
 
             for det in detections:
                 tid = det["track_id"]

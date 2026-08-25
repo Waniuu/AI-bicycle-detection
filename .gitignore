@@ -14,7 +14,7 @@ venv/
 *.csv
 screenshots/
 runs/
-Filmiki_testowe/
+calibration_samples/
 Silnik V2/
 
 # Weights & Datasets

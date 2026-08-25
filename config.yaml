@@ -16,10 +16,12 @@ dedup_ttl: 3.0
 device_desc: Jetson Orin Nano - Main Unit
 device_name: jetson-orin-01
 filters:
-  max_height: 470
-  max_width: 630
-  min_height: 30
-  min_width: 45
+  max_height: 480
+  max_width: 640
+  min_aspect_ratio: 0.35
+  min_height: 25
+  min_movement_px: 30
+  min_width: 25
 keep_screenshots: 950
 location_desc: Main entrance
 location_name: Camera_01
@@ -28,16 +30,26 @@ log_level: DEBUG
 max_crossing_days: 90
 max_screenshots: 1000
 model:
-  min_confidence: 0.65
-  path: /home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine
-  target_classes:
-    0: person
-    1: cyclist
-    2: e-scooter
+  active_model: yolo11n_base
+  available_models:
+    yolo11n_base:
+      bike_class_name: bicycle
+      name: YOLO11n (Tylko rowery)
+      path: /home/student/CounterProject/Silnik V2/yolo11n.engine
+      scooter_class_name: null
+      supports_scooters: false
+    yolo11s_scooter:
+      bike_class_name: cyclist
+      name: YOLO11s (Rowery + Hulajnogi)
+      path: /home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine
+      scooter_class_name: e-scooter
+      supports_scooters: true
+  min_confidence: 0.4
+model_path: /home/student/CounterProject/Silnik V2/yolo11n.engine
 osd:
   show_boxes: true
   show_hud: true
-  show_line: false
+  show_line: true
   show_persons: true
   show_tracks: true
 track_iou_threshold: 0.1
@@ -46,5 +58,8 @@ track_missing_ttl: 3.0
 track_persist_time: 0.6
 tracker:
   crossing_line_y: 240
+  line_x1: 0
+  line_x2: 640
+  track_persist_time: 0.3
   use_crossing_line: true
 version: 3.0.4
