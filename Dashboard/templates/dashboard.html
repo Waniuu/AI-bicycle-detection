@@ -1,420 +1,383 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mobility Counter Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
+:root {
+  --bg: #0f1117;
+  --card-bg: #161b22;
+  --border: #30363d;
+  --text: #e0e0e0;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --header-bg: #161b22;
+}
+[data-theme="light"] {
+  --bg: #f4f6f8;
+  --card-bg: #ffffff;
+  --border: #d0d7de;
+  --text: #24292f;
+  --text-muted: #57606a;
+  --accent: #0969da;
+  --header-bg: #ffffff;
+}
+
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;-webkit-text-size-adjust:100%}
-header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 16px;display:flex;align-items:center;gap:10px}
-header h1{font-size:1rem;color:#58a6ff;white-space:nowrap}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition: background 0.3s, color 0.3s;-webkit-text-size-adjust:100%}
+
+header{background:var(--header-bg);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:1.05rem;color:var(--accent);white-space:nowrap}
 header .dot{width:10px;height:10px;border-radius:50%;background:#f85149;flex-shrink:0}
 header .dot.ok{background:#3fb950}
-header .meta{margin-left:auto;font-size:0.7rem;color:#8b949e;white-space:nowrap}
-header .db-btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;text-decoration:none;white-space:nowrap}
-header .db-btn:hover{background:#161b22;border-color:#58a6ff}
-.time-warning{background:#f85149;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:bold;margin-left:10px;display:none}
+header .meta{margin-left:auto;font-size:0.75rem;color:var(--text-muted);white-space:nowrap}
+
+.btn-header{background:var(--card-bg);border:1px solid var(--border);color:var(--accent);padding:5px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;text-decoration:none;font-weight:600}
+.btn-header:hover{opacity:0.8}
 
 .container{padding:16px;max-width:1440px;margin:0 auto}
 
-.top-row{display:grid;grid-template-columns:minmax(0, 1fr) 380px;gap:16px;margin-bottom:16px;align-items:start}
+/* Layout główny */
+.dashboard-grid{display:grid;grid-template-columns: 1fr 380px;gap:16px;margin-bottom:16px}
+@media(max-width: 1024px){.dashboard-grid{grid-template-columns:1fr}}
 
-.left-column{display:flex;flex-direction:column;gap:16px;min-width:0}
-.video-panel{background:#000;border-radius:8px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;max-height:540px;border:1px solid #30363d}
-.video-panel img{width:100%;height:100%;display:block;object-fit:contain;background:#000}
-.video-panel .badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:4px;font-size:0.7rem;color:#3fb950;font-weight:600}
+.left-stack{display:flex;flex-direction:column;gap:16px}
+.right-stack{display:flex;flex-direction:column;gap:16px}
 
-.log-panel{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;height:240px;overflow-y:auto;font-family:monospace;font-size:0.75rem;white-space:pre-wrap;color:#c9d1d9}
-.log-panel h3{margin-top:0;margin-bottom:8px;font-size:0.75rem;color:#8b949e;font-family:'Segoe UI',system-ui,sans-serif}
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:14px}
+.card h3{font-size:0.85rem;color:var(--text);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 
-.right-column{display:flex;flex-direction:column;gap:12px;min-width:0}
-.card-settings{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
-.card-settings h3{margin-top:0;margin-bottom:12px;font-size:0.85rem;color:#e0e0e0}
-.form-group{margin-bottom:10px}
-.form-group label{display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.75rem;color:#8b949e}
-.form-group span.val{color:#58a6ff;font-weight:bold}
+/* Wideo podgląd */
+.video-box{background:#000;border-radius:6px;overflow:hidden;position:relative;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center}
+.video-box img{width:100%;height:100%;object-fit:contain}
+.video-badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:4px;font-size:0.7rem;color:#3fb950;font-weight:600}
+
+/* Kafelki statystyk */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;margin-bottom:16px}
+.stat-box{background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px}
+.stat-box .label{font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px}
+.stat-box .value{font-size:1.4rem;font-weight:700;margin-top:2px}
+.stat-box.bike .value{color:var(--accent)}
+.stat-box.scooter .value{color:#d2a8ff}
+.stat-box.total .value{color:#f0883e}
+.stat-box.fps .value{color:#3fb950}
+
+/* Formularze i suwaki */
+.form-group{margin-bottom:8px}
+.form-group label{display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted);margin-bottom:3px}
+.form-group span.val{color:var(--accent);font-weight:bold}
 .form-group input[type="range"]{width:100%;cursor:pointer;accent-color:#238636}
-select.custom-select{width:100%;padding:6px 10px;border-radius:4px;border:1px solid #30363d;background:#0d1117;color:white;font-size:0.8rem;outline:none;}
-select.custom-select:focus{border-color:#58a6ff;}
+select.custom-select{width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.8rem;outline:none}
 
-.btn-save{width:100%;padding:8px;background:#238636;color:white;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:0.8rem;margin-top:4px}
-.btn-save:hover{background:#2ea043}
+.btn-action{width:100%;padding:8px;background:#238636;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:0.8rem;margin-top:6px}
+.btn-action:hover{opacity:0.9}
 
-.stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
-.stat-card .label{font-size:0.65rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px}
-.stat-card .value{font-size:1.6rem;font-weight:700;margin-top:2px}
-.stat-card .sub{font-size:0.7rem;color:#6e7681;margin-top:1px}
-.stat-card.bike .value{color:#58a6ff}
-.stat-card.scooter .value{color:#d2a8ff}
-.stat-card.total .value{color:#f0883e}
-.stat-card.fps .value{color:#3fb950}
-.stat-card.active .value{color:#79c0ff}
-
-.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-.chart-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px}
-.chart-card h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
-
-.badge-type{padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600;display:inline-block}
-.badge-type.bicycle,.badge-type.cyclist{background:#28a745;color:#fff}
-.badge-type.e-scooter{background:#d2a8ff;color:#161b22}
-
-.events-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:16px}
-.events-panel h3{font-size:0.75rem;color:#8b949e;margin-bottom:8px}
+/* Wykresy i Tabela */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width: 768px){.charts-grid{grid-template-columns:1fr}}
 
 table{width:100%;border-collapse:collapse;font-size:0.8rem}
-th{text-align:left;padding:6px 8px;border-bottom:1px solid #30363d;color:#8b949e;font-size:0.7rem}
-td{padding:6px 8px;border-bottom:1px solid #21262d}
-.no-data{color:#484f58;font-style:italic;text-align:center;padding:20px}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:0.7rem}
+td{padding:6px 8px;border-bottom:1px solid var(--border)}
+.badge-type{padding:2px 6px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-type.bicycle{background:#28a745;color:#fff}
+.badge-type.e-scooter{background:#d2a8ff;color:#161b22}
+.no-data{color:var(--text-muted);font-style:italic;text-align:center;padding:14px}
 </style>
 </head>
 <body>
+
 <header>
   <div class="dot" id="statusDot"></div>
-  <h1>Mobility Counter</h1>
-  <span class="time-warning" id="timeWarning">TIME NOT SYNCED</span>
-  <a href="/database" class="db-btn">Database</a>
-  <span class="meta" id="versionTag" style="color:#58a6ff;margin-left:4px">v{{ version }}</span>
-  <span class="meta" id="lastUpdate"></span>
+  <h1>Mobility Dashboard</h1>
+  <button class="btn-header" onclick="toggleTheme()" id="themeBtn">🌓 Motyw</button>
+  <a href="/database" class="btn-header">🗄️ Baza Danych</a>
+  <span class="meta" id="fpsBadge" style="color:#3fb950; font-weight:bold">-- FPS</span>
 </header>
 
 <div class="container">
-  <div class="top-row">
-    <!-- Lewa strona: Wideo + Terminal logów -->
-    <div class="left-column">
-      <div class="video-panel">
-        <img id="videoFeed" src="/video" alt="Camera feed" onerror="this.style.background='#000'">
-        <div class="badge" id="fpsBadge">-- FPS</div>
+
+  <!-- Główne statystyki na górze -->
+  <div class="stats-row">
+    <div class="stat-box bike">
+      <div class="label">Rowery Dziś</div>
+      <div class="value" id="bikeTodayVal">0</div>
+    </div>
+    <div class="stat-box scooter">
+      <div class="label">Hulajnogi Dziś</div>
+      <div class="value" id="scooterTodayVal">0</div>
+    </div>
+    <div class="stat-box total">
+      <div class="label">Razem Dziś</div>
+      <div class="value" id="todayTotalVal">0</div>
+    </div>
+    <div class="stat-box fps">
+      <div class="label">Aktywne Obiekty</div>
+      <div class="value" id="activeVal">0</div>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    
+    <!-- LEWA STRONA: Wideo + Wykresy + Ostatnie zdarzenia -->
+    <div class="left-stack">
+      <div class="card">
+        <h3>📹 Podgląd na żywo</h3>
+        <div class="video-box">
+          <img id="videoFeed" src="/video" alt="Camera feed">
+          <div class="video-badge" id="liveModeBadge">Live Camera</div>
+        </div>
       </div>
 
-      <div class="log-panel" id="logPanel">
-        <h3>Terminal Logs</h3>
-        <pre id="logContent"></pre>
+      <div class="charts-grid">
+        <div class="card">
+          <h3>📈 Linia Czasu Przejazdów</h3>
+          <canvas id="timelineChart" height="130"></canvas>
+        </div>
+        <div class="card">
+          <h3>📊 Rozkład 15-minutowy</h3>
+          <canvas id="quarterlyChart" height="130"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔍 Ostatnie Detekcje</h3>
+        <table>
+          <thead><tr><th>Czas</th><th>Typ</th><th>Track ID</th></tr></thead>
+          <tbody id="eventsBody"><tr><td colspan="3" class="no-data">Brak detekcji</td></tr></tbody>
+        </table>
       </div>
     </div>
 
-    <!-- Prawa strona: 1. Kalibracja, 2. Ustawienia Live, 3. OSD, 4. Statystyki -->
-    <div class="right-column">
+    <!-- PRAWA STRONA: Proste ustawienia i kalibracja -->
+    <div class="right-stack">
       
-      <!-- 1. Calibration & Testing -->
-      <div class="card-settings">
-        <h3>🔬 Calibration & Testing</h3>
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <button type="button" id="btnRecordSample" class="btn-save" style="background: #1f6feb; margin-top: 0;">Record 10s Sample</button>
-          
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="checkCalibMode" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="checkCalibMode" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Calibration Loopback Mode</label>
-          </div>
+      <!-- Model i Linia zliczająca -->
+      <div class="card">
+        <h3>⚙️ Ustawienia Zliczania</h3>
+        <div class="form-group">
+          <label>Aktywny Model AI</label>
+          <select id="selectActiveModel" class="custom-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Początek linii X1: <span class="val" id="lbl_line_x1">0px</span></label>
+          <input type="range" id="input_line_x1" min="0" max="1920" value="0">
+        </div>
+        <div class="form-group">
+          <label>Początek linii Y1: <span class="val" id="lbl_line_y1">240px</span></label>
+          <input type="range" id="input_line_y1" min="0" max="1080" value="240">
+        </div>
+        <div class="form-group">
+          <label>Koniec linii X2: <span class="val" id="lbl_line_x2">640px</span></label>
+          <input type="range" id="input_line_x2" min="0" max="1920" value="640">
+        </div>
+        <div class="form-group">
+          <label>Koniec linii Y2: <span class="val" id="lbl_line_y2">240px</span></label>
+          <input type="range" id="input_line_y2" min="0" max="1080" value="240">
+        </div>
+        <button type="button" id="btnSavePerm" class="btn-action">💾 Zapisz konfigurację</button>
+      </div>
 
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.75rem; color: #8b949e;">Select Test Video:</label>
-            <select id="selectCalibFile" class="custom-select"></select>
-          </div>
-
-          <div id="calibPlaybackControls" style="display: flex; gap: 8px; align-items: center; margin-top: 2px;">
-            <button type="button" id="btnPrevFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏪ -1 Frame</button>
-            <button type="button" id="btnPlayPause" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏯️ Play/Pause</button>
-            <button type="button" id="btnNextFrame" class="btn-save" style="margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #21262d; border: 1px solid #30363d; cursor: pointer; width: auto; flex: 1;">⏩ +1 Frame</button>
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <input type="range" id="calibScrubber" min="0" value="0" style="width: 100%; cursor: pointer;">
-            <div style="font-size: 0.75rem; color: #8b949e;">Frame: <span id="calibFrameLabel">0 / 0</span></div>
-          </div>
-
-          <div style="border-top: 1px dashed #30363d; margin-top: 6px; padding-top: 8px;">
-            <label style="font-size: 0.75rem; color: #8b949e; display: block; margin-bottom: 4px;">Upload new video sample:</label>
-            <input type="file" id="calibUploadInput" accept="video/mp4,video/avi,video/mov,video/mkv" style="font-size: 0.75rem; color: #8b949e; display: block; width: 100%;">
-            <button type="button" id="btnUploadVideo" class="btn-save" style="background: #238636; margin-top: 4px; padding: 4px 8px; font-size: 0.75rem; width: auto; display: inline-block;">Upload Video</button>
-          </div>
-
-          <div style="font-size: 0.75rem; color: #8b949e; border-top: 1px dashed #30363d; padding-top: 8px;">
-            Status: <span id="calibStatus" style="font-weight: bold; color: #58a6ff;">Live camera</span>
-          </div>
+      <!-- Kalibracja wideo -->
+      <div class="card">
+        <h3>🧪 Test z Pliku Wideo</h3>
+        <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:10px">
+          <input type="checkbox" id="checkCalibMode" style="cursor:pointer">
+          <label for="checkCalibMode" style="cursor:pointer; color:var(--text); margin:0">Tryb testowy z pliku</label>
+        </div>
+        <div class="form-group">
+          <select id="selectCalibFile" class="custom-select"></select>
+        </div>
+        <div style="display:flex; gap:6px">
+          <button type="button" id="btnPlayPause" class="btn-action" style="background:#21262d; border:1px solid var(--border)">⏯️ Play/Pause</button>
         </div>
       </div>
 
-      <!-- 2. Live Counting Settings -->
-      <div class="card-settings">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin: 0;">⚙️ Live Counting Settings</h3>
-          <span id="liveSyncBadge" style="font-size: 0.65rem; background: #238636; color: white; padding: 1px 6px; border-radius: 4px; display: none;">Live Synced</span>
-        </div>
-        <form id="liveConfigForm" onsubmit="return false;">
-          
-          <div class="form-group" style="border-bottom: 1px dashed #30363d; padding-bottom: 10px; margin-bottom: 12px;">
-            <label style="color: #58a6ff; font-weight: bold;">Active AI Model:</label>
-            <select id="selectActiveModel" class="custom-select" style="border-color: #58a6ff;"></select>
-          </div>
-
-          <div class="form-group">
-            <label>Line Y Position: <span class="val" id="lbl_line_y">240px</span></label>
-            <input type="range" id="input_line_y" min="0" max="720" value="240">
-          </div>
-
-          <div class="form-group">
-            <label>Line X1 (Start): <span class="val" id="lbl_line_x1">0px</span></label>
-            <input type="range" id="input_line_x1" min="0" max="1280" value="0">
-          </div>
-
-          <div class="form-group">
-            <label>Line X2 (End): <span class="val" id="lbl_line_x2">640px</span></label>
-            <input type="range" id="input_line_x2" min="0" max="1280" value="640">
-          </div>
-
-          <div class="form-group">
-            <label>AI Min Confidence: <span class="val" id="lbl_min_conf">40%</span></label>
-            <input type="range" id="input_min_conf" min="0.10" max="0.95" step="0.05" value="0.40">
-          </div>
-
-          <div class="form-group">
-            <label>Min Width: <span class="val" id="lbl_min_w">25px</span></label>
-            <input type="range" id="input_min_w" min="5" max="300" value="25">
-          </div>
-
-          <div class="form-group">
-            <label>Max Width: <span class="val" id="lbl_max_w">640px</span></label>
-            <input type="range" id="input_max_w" min="50" max="1280" value="640">
-          </div>
-
-          <div class="form-group">
-            <label>Min Height: <span class="val" id="lbl_min_h">25px</span></label>
-            <input type="range" id="input_min_h" min="5" max="400" value="25">
-          </div>
-
-          <div class="form-group">
-            <label>Max Height: <span class="val" id="lbl_max_h">480px</span></label>
-            <input type="range" id="input_max_h" min="50" max="1280" value="480">
-          </div>
-
-          <div class="form-group">
-            <label>Min Aspect Ratio (W/H): <span class="val" id="lbl_min_ar">0.00</span></label>
-            <input type="range" id="input_min_ar" min="0.0" max="1.0" step="0.02" value="0.00">
-          </div>
-
-          <div class="form-group">
-            <label>Min Movement: <span class="val" id="lbl_min_move">0px</span></label>
-            <input type="range" id="input_min_move" min="0" max="200" value="0">
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
-            <button type="button" id="btnSavePerm" class="btn-save" style="background: #238636; margin-top: 0;">💾 Save to Disk</button>
-            <button type="button" id="btnResetDefaults" class="btn-save" style="background: #da3633; margin-top: 0;">🔄 Reload Config</button>
-          </div>
-        </form>
-      </div>
-
-      <!-- 3. Video Overlays (OSD) -->
-      <div class="card-settings">
-        <h3>👁️ Video Overlays (OSD)</h3>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="osd_show_line" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="osd_show_line" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Counting Line</label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="osd_show_boxes" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="osd_show_boxes" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Detection Boxes</label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="osd_show_tracks" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="osd_show_tracks" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Tracks & Trails</label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="osd_show_persons" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="osd_show_persons" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">Debug: Show Ignored Persons</label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="osd_show_hud" style="width: auto; margin: 0; cursor: pointer;">
-            <label for="osd_show_hud" style="font-size: 0.8rem; cursor: pointer; color: #8b949e;">HUD / Text Info</label>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. Statystyki -->
-      <div class="stat-card bike">
-        <div class="label">Bicycles Today</div>
-        <div class="value" id="bikeTodayVal">0</div>
-        <div class="sub">Total: <span id="bikeTotalVal">0</span></div>
-      </div>
-
-      <div class="stat-card scooter">
-        <div class="label">E-Scooters Today</div>
-        <div class="value" id="scooterTodayVal">0</div>
-        <div class="sub">Total: <span id="scooterTotalVal">0</span></div>
-      </div>
-
-      <div class="stat-card total">
-        <div class="label">All Time Crossings</div>
-        <div class="value" id="allTimeVal">0</div>
-        <div class="sub">Combined today: <span id="todayTotalVal">0</span></div>
-      </div>
-
-      <div class="stat-card fps">
-        <div class="label">Pipeline FPS / Active Tracks</div>
-        <div class="value"><span id="fpsVal">0</span> <span style="font-size: 1rem; color: #8b949e;">FPS</span> / <span id="activeVal" style="color: #79c0ff;">0</span></div>
-        <div class="sub">Processing speed & current objects</div>
-      </div>
-
     </div>
-  </div>
 
-  <div class="charts-row">
-    <div class="chart-card">
-      <h3>Crossing Timeline</h3>
-      <canvas id="timelineChart"></canvas>
-    </div>
-    <div class="chart-card">
-      <h3>15-Min Breakdown</h3>
-      <canvas id="quarterlyChart"></canvas>
-    </div>
-  </div>
-
-  <div class="events-panel">
-    <h3>Recent Detections</h3>
-    <table>
-      <thead><tr><th>Time</th><th>Type</th><th>Track ID</th></tr></thead>
-      <tbody id="eventsBody"><tr><td colspan="3" class="no-data">No detections yet</td></tr></tbody>
-    </table>
   </div>
 </div>
 
 <script>
-const timelineData={labels:[],datasets:[{label:'Crossings',data:[],borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.1)',fill:true,tension:0.3,pointRadius:3}]};
-const timelineChart=new Chart(document.getElementById('timelineChart'),{type:'line',data:timelineData,options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{beginAtZero:true,ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}});
+// Motyw kolorystyczny
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+}
+if(localStorage.getItem('theme')) {
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('theme'));
+}
 
-const quarterlyChart=new Chart(document.getElementById('quarterlyChart'),{
-  type:'bar',data:{labels:[],datasets:[{label:'Bicycles',data:[],backgroundColor:'rgba(88,166,255,0.7)',borderRadius:4}]},
-  options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b949e',font:{size:9},maxRotation:45},grid:{display:false}},y:{beginAtZero:true,ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}
+// Wykresy Chart.js
+const timelineData = {labels:[], datasets:[{label:'Przejazdy', data:[], borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,0.1)', fill:true, tension:0.3, pointRadius:2}]};
+const timelineChart = new Chart(document.getElementById('timelineChart'), {type:'line', data:timelineData, options:{responsive:true, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{beginAtZero:true, grid:{color:'rgba(200,200,200,0.1)'}}}}});
+
+const quarterlyChart = new Chart(document.getElementById('quarterlyChart'), {
+  type:'bar', data:{labels:[], datasets:[{label:'Ruch', data:[], backgroundColor:'#238636', borderRadius:4}]},
+  options:{responsive:true, plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:9}}}, y:{beginAtZero:true, grid:{color:'rgba(200,200,200,0.1)'}}}}
 });
 
-let prevCount=0;
-let initialOsdLoaded=false;
-let initialSlidersLoaded=false;
-let initialModelsLoaded=false;
-let calibPausedGlobal=false;
-let debounceTimer=null;
-
-const sliderConfigs = [
-  { id: 'input_line_y', lbl: 'lbl_line_y', unit: 'px' },
-  { id: 'input_line_x1', lbl: 'lbl_line_x1', unit: 'px' },
-  { id: 'input_line_x2', lbl: 'lbl_line_x2', unit: 'px' },
-  { id: 'input_min_conf', lbl: 'lbl_min_conf', format: v => Math.round(v * 100) + '%' },
-  { id: 'input_min_w', lbl: 'lbl_min_w', unit: 'px' },
-  { id: 'input_max_w', lbl: 'lbl_max_w', unit: 'px' },
-  { id: 'input_min_h', lbl: 'lbl_min_h', unit: 'px' },
-  { id: 'input_max_h', lbl: 'lbl_max_h', unit: 'px' },
-  { id: 'input_min_ar', lbl: 'lbl_min_ar', format: v => parseFloat(v).toFixed(2) },
-  { id: 'input_min_move', lbl: 'lbl_min_move', unit: 'px' }
-];
-
-function getPayloadData() {
-  return {
-    crossing_line_y: parseInt(document.getElementById('input_line_y').value),
-    line_x1: parseInt(document.getElementById('input_line_x1').value),
-    line_x2: parseInt(document.getElementById('input_line_x2').value),
-    min_confidence: parseFloat(document.getElementById('input_min_conf').value),
-    min_width: parseInt(document.getElementById('input_min_w').value),
-    max_width: parseInt(document.getElementById('input_max_w').value),
-    min_height: parseInt(document.getElementById('input_min_h').value),
-    max_height: parseInt(document.getElementById('input_max_h').value),
-    min_aspect_ratio: parseFloat(document.getElementById('input_min_ar').value),
-    min_movement_px: parseInt(document.getElementById('input_min_move').value)
-  };
-}
-
-function triggerLiveRamUpdate() {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(async () => {
-    const payload = getPayloadData();
-    payload.persist = false;
-    try {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const badge = document.getElementById('liveSyncBadge');
-      if(badge) {
-        badge.style.display = 'inline-block';
-        setTimeout(() => { badge.style.display = 'none'; }, 1000);
-      }
-    } catch(e){}
-  }, 60);
-}
-
-sliderConfigs.forEach(s => {
-  const el = document.getElementById(s.id);
-  const lbl = document.getElementById(s.lbl);
+// Obsługa suwaków i konfiguracji
+const sliders = ['line_x1', 'line_y1', 'line_x2', 'line_y2'];
+sliders.forEach(id => {
+  const el = document.getElementById('input_' + id);
+  const lbl = document.getElementById('lbl_' + id);
   if(el && lbl) {
-    el.addEventListener('input', (e) => {
-      lbl.textContent = s.format ? s.format(e.target.value) : `${e.target.value}${s.unit}`;
-      triggerLiveRamUpdate();
+    el.addEventListener('input', e => {
+      lbl.textContent = e.target.value + 'px';
+      clearTimeout(window._debounce);
+      window._debounce = setTimeout(() => {
+        fetch('/api/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            line_x1: parseInt(document.getElementById('input_line_x1').value),
+            line_y1: parseInt(document.getElementById('input_line_y1').value),
+            line_x2: parseInt(document.getElementById('input_line_x2').value),
+            line_y2: parseInt(document.getElementById('input_line_y2').value),
+            persist: false
+          })
+        });
+      }, 50);
     });
   }
 });
+let prevCount = 0;
 
-async function loadModelsList() {
-  try {
-    const r = await fetch('/api/models');
+// Pobieranie danych i statystyk z serwera FastAPI
+async function fetchStats(){
+  try{
+    const r = await fetch('/stats');
     const d = await r.json();
-    if (d.models) {
-      const select = document.getElementById('selectActiveModel');
-      select.innerHTML = Object.entries(d.models).map(([key, info]) => 
-        `<option value="${key}">${info.name || key}</option>`
-      ).join('');
-      if (d.active) {
-        select.value = d.active;
+    if(d.error) return;
+
+    const bikeToday = d.bike_today || 0;
+    const scooterToday = d.scooter_today || 0;
+    const totalToday = d.today_total || (bikeToday + scooterToday);
+
+    // Aktualizacja kafelków na górze
+    document.getElementById('bikeTodayVal').textContent = bikeToday;
+    document.getElementById('scooterTodayVal').textContent = scooterToday;
+    document.getElementById('todayTotalVal').textContent = totalToday;
+    document.getElementById('activeVal').textContent = d.active_tracks || 0;
+    
+    document.getElementById('fpsBadge').textContent = d.fps + ' FPS';
+    document.getElementById('statusDot').className = d.fps > 0 ? 'dot ok' : 'dot';
+
+    // 1. Aktualizacja wykresów liniowych (Timeline)
+    if(totalToday !== prevCount){
+      timelineData.labels.push(new Date().toLocaleTimeString());
+      timelineData.datasets[0].data.push(totalToday);
+      if(timelineData.labels.length > 20){
+        timelineData.labels.shift();
+        timelineData.datasets[0].data.shift();
       }
-      initialModelsLoaded = true;
+      timelineChart.update();
+      prevCount = totalToday;
+    }
+
+    // 2. Aktualizacja wykresów 15-minutowych (Quarterly)
+    if(d.quarterly && d.quarterly.length > 0){
+      quarterlyChart.data.labels = d.quarterly.map(q => q.label || q.period);
+      quarterlyChart.data.datasets[0].data = d.quarterly.map(q => q.count);
+      quarterlyChart.update();
+    }
+
+    // 3. Odświeżenie tabeli "Ostatnie Detekcje" (Events)
+    const tbody = document.getElementById('eventsBody');
+    if(d.events && d.events.length > 0){
+      tbody.innerHTML = d.events.slice(0, 10).map(e => {
+        const vType = (e.vehicle_type || 'bicycle').toLowerCase();
+        const cssClass = vType.includes('scooter') ? 'e-scooter' : 'bicycle';
+        const displayName = vType.includes('scooter') ? 'e-scooter' : 'bicycle';
+        return `<tr><td>${e.time_str || '-'}</td><td><span class="badge-type ${cssClass}">${displayName}</span></td><td>#${e.track_id}</td></tr>`;
+      }).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="3" class="no-data">Brak detekcji</td></tr>';
+    }
+  }catch(e){
+    console.error("Błąd pobierania statystyk:", e);
+  }
+}
+
+// Interwał odświeżania statystyk co 0.5 sekundy
+setInterval(fetchStats, 500);
+fetchStats();
+
+// Ładowanie listy modeli i plików wideo przy starcie
+async function initSelects() {
+  try {
+    const mRes = await fetch('/api/models');
+    const mData = await mRes.json();
+    if(mData.models) {
+      document.getElementById('selectActiveModel').innerHTML = Object.entries(mData.models).map(([k,v]) => `<option value="${k}">${v.name || k}</option>`).join('');
+      if(mData.active) document.getElementById('selectActiveModel').value = mData.active;
+    }
+    const cRes = await fetch('/api/calibration/files');
+    const cData = await cRes.json();
+    if(cData.files) {
+      const select = document.getElementById('selectCalibFile');
+      select.innerHTML = cData.files.map(f => `<option value="${f}">${f}</option>`).join('');
+      if(cData.files.length > 0) select.value = cData.files[0];
     }
   } catch(e){}
 }
-loadModelsList();
+initSelects();
 
-document.getElementById('selectActiveModel').addEventListener('change', async (e) => {
-  const model_key = e.target.value;
+// Zapis konfiguracji na stałe (do config.yaml)
+document.getElementById('btnSavePerm').addEventListener('click', async () => {
   try {
-    const r = await fetch('/api/models/select', {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        line_x1: parseInt(document.getElementById('input_line_x1').value),
+        line_y1: parseInt(document.getElementById('input_line_y1').value),
+        line_x2: parseInt(document.getElementById('input_line_x2').value),
+        line_y2: parseInt(document.getElementById('input_line_y2').value),
+        persist: true
+      })
+    });
+    alert("💾 Zapisano ustawienia na stałe w pliku config.yaml!");
+  } catch(e) {
+    alert("❌ Błąd zapisu konfigu.");
+  }
+});
+
+// Obsługa trybu wideo (checkbox kalibracji)
+document.getElementById('checkCalibMode').addEventListener('change', async (e) => {
+  const enabled = e.target.checked;
+  try {
+    await fetch('/api/calibration/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model_key })
+      body: JSON.stringify({ enabled })
     });
-    const res = await r.json();
-    if (res.status === 'ok') {
-      const badge = document.getElementById('liveSyncBadge');
-      if (badge) {
-        badge.textContent = "Model Switched";
-        badge.style.display = 'inline-block';
-        setTimeout(() => { 
-          badge.textContent = "Live Synced";
-          badge.style.display = 'none'; 
-        }, 1500);
-      }
+  } catch (err) {}
+
+  if (enabled) {
+    const filename = document.getElementById('selectCalibFile').value;
+    if (filename) {
+      try {
+        await fetch('/api/calibration/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename })
+        });
+      } catch (err) {}
     }
-  } catch(e){
-    alert("❌ Failed to switch model.");
   }
+
+  document.getElementById('liveModeBadge').textContent = enabled ? "Calibration File" : "Live Camera";
+  document.getElementById('liveModeBadge').style.color = enabled ? "#d2a8ff" : "#3fb950";
 });
 
-async function loadSampleFiles() {
-  try {
-    const r = await fetch('/api/calibration/files');
-    const d = await r.json();
-    if(d.files) {
-      const select = document.getElementById('selectCalibFile');
-      const currentSelected = select.value;
-      select.innerHTML = d.files.map(f => `<option value="${f}">${f}</option>`).join('');
-      if(currentSelected && d.files.includes(currentSelected)) {
-        select.value = currentSelected;
-      }
-    }
-  } catch(e){}
-}
-loadSampleFiles();
-
+// Zmiana pliku z listy
 document.getElementById('selectCalibFile').addEventListener('change', async (e) => {
   const filename = e.target.value;
   try {
@@ -426,315 +389,19 @@ document.getElementById('selectCalibFile').addEventListener('change', async (e) 
   } catch(e){}
 });
 
-async function fetchStats(){
-  try{
-    const r=await fetch('/stats');
-    const d=await r.json();
-    if(d.error)return;
-
-    const bikeToday = d.bike_today || 0;
-    const scooterToday = d.scooter_today || 0;
-    const totalToday = d.today_total || (bikeToday + scooterToday);
-
-    const bikeAllTime = d.bike_all_time || 0;
-    const scooterAllTime = d.scooter_all_time || 0;
-    const totalAllTime = d.all_time_total || (bikeAllTime + scooterAllTime);
-
-    document.getElementById('bikeTodayVal').textContent = bikeToday;
-    document.getElementById('bikeTotalVal').textContent = bikeAllTime;
-    document.getElementById('scooterTodayVal').textContent = scooterToday;
-    document.getElementById('scooterTotalVal').textContent = scooterAllTime;
-    document.getElementById('todayTotalVal').textContent = totalToday;
-    document.getElementById('allTimeVal').textContent = totalAllTime;
-    
-    document.getElementById('fpsVal').textContent=d.fps;
-    document.getElementById('activeVal').textContent=d.active_tracks;
-    document.getElementById('fpsBadge').textContent=d.fps+' FPS';
-    document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
-    document.getElementById('statusDot').className=d.fps>0?'dot ok':'dot';
-
-    const timeWarning = document.getElementById('timeWarning');
-    if (d.time_synced === false) timeWarning.style.display = 'inline-block';
-    else timeWarning.style.display = 'none';
-
-    if (d.active_model && initialModelsLoaded) {
-      const selectModel = document.getElementById('selectActiveModel');
-      if (document.activeElement !== selectModel) {
-        selectModel.value = d.active_model;
-      }
-    }
-
-    if (d.osd && !initialOsdLoaded) {
-      ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"].forEach(key => {
-        const el = document.getElementById("osd_" + key);
-        if (el && d.osd[key] !== undefined) {
-          el.checked = d.osd[key];
-        }
-      });
-      initialOsdLoaded = true;
-    }
-
-    if (d.config && !initialSlidersLoaded) {
-      const cfg = d.config;
-      const trk = cfg.tracker || {};
-      const flt = cfg.filters || {};
-      const mdl = cfg.model || {};
-
-      const setSlider = (id, val, lblId, cfgObj) => {
-        const el = document.getElementById(id);
-        const lbl = document.getElementById(lblId);
-        if(el && val !== undefined) {
-          el.value = val;
-          if(lbl) lbl.textContent = cfgObj.format ? cfgObj.format(val) : `${val}${cfgObj.unit}`;
-        }
-      };
-
-      setSlider('input_line_y', trk.crossing_line_y, 'lbl_line_y', sliderConfigs[0]);
-      setSlider('input_line_x1', trk.line_x1, 'lbl_line_x1', sliderConfigs[1]);
-      setSlider('input_line_x2', trk.line_x2, 'lbl_line_x2', sliderConfigs[2]);
-      setSlider('input_min_conf', mdl.min_confidence, 'lbl_min_conf', sliderConfigs[3]);
-      setSlider('input_min_w', flt.min_width, 'lbl_min_w', sliderConfigs[4]);
-      setSlider('input_max_w', flt.max_width, 'lbl_max_w', sliderConfigs[5]);
-      setSlider('input_min_h', flt.min_height, 'lbl_min_h', sliderConfigs[6]);
-      setSlider('input_max_h', flt.max_height, 'lbl_max_h', sliderConfigs[7]);
-      setSlider('input_min_ar', flt.min_aspect_ratio, 'lbl_min_ar', sliderConfigs[8]);
-      setSlider('input_min_move', flt.min_movement_px, 'lbl_min_move', sliderConfigs[9]);
-      initialSlidersLoaded = true;
-    }
-
-    const calibMode = d.calibration_mode || false;
-    const sampleRec = d.sample_recording || false;
-
-    const checkCalib = document.getElementById('checkCalibMode');
-    if (document.activeElement !== checkCalib) {
-      checkCalib.checked = calibMode;
-    }
-
-    const calibStatus = document.getElementById('calibStatus');
-    if (sampleRec) {
-      calibStatus.textContent = "Recording sample...";
-      calibStatus.style.color = "#f85149";
-    } else if (calibMode) {
-      calibStatus.textContent = `Loop: ${d.current_sample_file || 'active'}`;
-      calibStatus.style.color = "#d2a8ff";
-    } else {
-      calibStatus.textContent = "Live camera";
-      calibStatus.style.color = "#3fb950";
-    }
-
-    calibPausedGlobal = d.calib_paused || false;
-    const scrubber = document.getElementById('calibScrubber');
-    const label = document.getElementById('calibFrameLabel');
-    const playPauseBtn = document.getElementById('btnPlayPause');
-    
-    if (d.calib_total_frames) {
-      scrubber.max = d.calib_total_frames;
-      label.textContent = `${d.calib_frame || 0} / ${d.calib_total_frames}`;
-      if (document.activeElement !== scrubber) {
-        scrubber.value = d.calib_frame || 0;
-      }
-    } else {
-      scrubber.max = 0;
-      label.textContent = "0 / 0";
-    }
-
-    playPauseBtn.textContent = calibPausedGlobal ? "▶️ Play" : "⏸️ Pause";
-
-    if(totalToday!==prevCount){
-      timelineData.labels.push('');
-      timelineData.datasets[0].data.push(totalToday);
-      if(timelineData.labels.length>30){timelineData.labels.shift();timelineData.datasets[0].data.shift();}
-      timelineChart.update();
-      prevCount=totalToday;
-    }
-    if(d.quarterly&&d.quarterly.length>0){
-      quarterlyChart.data.labels=d.quarterly.map(q=>q.label);
-      quarterlyChart.data.datasets[0].data=d.quarterly.map(q=>q.count);
-      quarterlyChart.update();
-    }
-    const tbody=document.getElementById('eventsBody');
-    if(d.events&&d.events.length>0){
-      tbody.innerHTML = d.events.slice().reverse().map(e => {
-        const vehicleType = e.vehicle_type || 'bicycle';
-        const typeClass = vehicleType.toLowerCase().replace(' ', '-');
-        return `<tr><td>${e.time_str}</td><td><span class="badge-type ${typeClass}">${vehicleType}</span></td><td>#${e.track_id}</td></tr>`;
-      }).join('');
-    }else{
-      tbody.innerHTML='<tr><td colspan="3" class="no-data">No detections yet</td></tr>';
-    }
-  }catch(e){}
-}
-setInterval(fetchStats,500);
-fetchStats();
-
-async function fetchLogs() {
-    try {
-        const response = await fetch('/stats');
-        const d = await response.json();
-        if(d.logs) {
-            const logContent = document.getElementById('logContent');
-            logContent.textContent = d.logs.join('\n');
-            const logPanel = document.getElementById('logPanel');
-            logPanel.scrollTop = logPanel.scrollHeight;
-        }
-    } catch (e) {
-        console.error("Failed to fetch logs:", e);
-    }
-}
-setInterval(fetchLogs, 2000);
-fetchLogs();
-
-document.getElementById('btnSavePerm').addEventListener('click', async () => {
-  const payload = getPayloadData();
-  payload.persist = true;
+// Przycisk Play / Pause
+let isPaused = false;
+document.getElementById('btnPlayPause').addEventListener('click', async () => {
+  isPaused = !isPaused;
+  const action = isPaused ? "pause" : "play";
+  document.getElementById('btnPlayPause').textContent = isPaused ? "▶️ Wznowij" : "⏸️ Pauza";
   try {
-    const res = await fetch('/api/config', {
+    await fetch('/api/calibration/playback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ action })
     });
-    if (res.ok) alert("💾 Settings saved permanently to config.yaml!");
-  } catch(e) {
-    alert("❌ Error saving to disk.");
-  }
-});
-
-document.getElementById('btnResetDefaults').addEventListener('click', async () => {
-  if (!confirm("Discard unsaved changes and reload settings from config.yaml?")) return;
-  try {
-    const res = await fetch('/api/config/reset', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok && data.config) {
-      initialSlidersLoaded = false;
-      alert("🔄 Settings reloaded from config.yaml!");
-    }
-  } catch (err) {
-    alert("❌ Error reloading configuration from file.");
-  }
-});
-
-document.getElementById('btnRecordSample').addEventListener('click', async () => {
-    try {
-        const response = await fetch('/api/calibration/record', { method: 'POST' });
-        if (response.ok) {
-            alert("✅ Recording 10s sample started!");
-            setTimeout(loadSampleFiles, 11000);
-        } else {
-            alert("❌ Error sending record request.");
-        }
-    } catch (e) {
-        alert("❌ Connection error.");
-    }
-});
-
-document.getElementById('checkCalibMode').addEventListener('change', async (e) => {
-    const enabled = e.target.checked;
-    try {
-        const response = await fetch('/api/calibration/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled })
-        });
-        if (!response.ok) {
-            alert("❌ Error updating calibration mode.");
-            e.target.checked = !enabled;
-        }
-    } catch (err) {
-        alert("❌ Connection error.");
-        e.target.checked = !enabled;
-    }
-});
-
-document.getElementById('btnPlayPause').addEventListener('click', async () => {
-    const action = calibPausedGlobal ? "play" : "pause";
-    try {
-        await fetch('/api/calibration/playback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
-        });
-    } catch (e) {}
-});
-
-document.getElementById('btnPrevFrame').addEventListener('click', async () => {
-    try {
-        await fetch('/api/calibration/playback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: "step", frames: -1 })
-        });
-    } catch (e) {}
-});
-
-document.getElementById('btnNextFrame').addEventListener('click', async () => {
-    try {
-        await fetch('/api/calibration/playback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: "step", frames: 1 })
-        });
-    } catch (e) {}
-});
-
-document.getElementById('calibScrubber').addEventListener('input', async (e) => {
-    const frame = parseInt(e.target.value);
-    try {
-        await fetch('/api/calibration/playback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: "seek", frame })
-        });
-    } catch (e) {}
-});
-
-document.getElementById('btnUploadVideo').addEventListener('click', async () => {
-    const fileInput = document.getElementById('calibUploadInput');
-    if (fileInput.files.length === 0) {
-        alert("Please select a video file first!");
-        return;
-    }
-    const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
-    
-    try {
-        const response = await fetch('/api/calibration/upload', {
-            method: 'POST',
-            body: formData
-        });
-        const res = await response.json();
-        if (response.ok && res.status === "ok") {
-            alert("✅ Video uploaded successfully!");
-            await loadSampleFiles();
-            document.getElementById('selectCalibFile').value = res.filename;
-        } else {
-            alert("❌ Upload failed: " + (res.message || "Unknown error"));
-        }
-    } catch (e) {
-        alert("❌ Network error during video upload.");
-    }
-});
-
-["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"].forEach(key => {
-    const el = document.getElementById("osd_" + key);
-    if (el) {
-        el.addEventListener("change", async (e) => {
-            const enabled = e.target.checked;
-            try {
-                const response = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ [key]: enabled, persist: true })
-                });
-                if (!response.ok) {
-                    alert("❌ Error saving OSD setting.");
-                    e.target.checked = !enabled;
-                }
-            } catch (err) {
-                alert("❌ Connection error.");
-                e.target.checked = !enabled;
-            }
-        });
-    }
+  } catch (e) {}
 });
 </script>
 </body>

@@ -1,5 +1,5 @@
 """
-FastAPI dashboard server for the bicycle & scooter counter v3.0.
+FastAPI dashboard server for the bicycle & scooter counter v4.6.
   GET /              - Live dashboard (HTML)
   GET /video         - MJPEG stream
   GET /stats         - JSON stats (w tym logi terminala, OSD i config)
@@ -13,6 +13,7 @@ FastAPI dashboard server for the bicycle & scooter counter v3.0.
   POST /api/models/select           - Zmiana aktywnego silnika AI
   GET /api/calibration/files        - Lista plików wideo z folderu
   POST /api/calibration/select      - Wybór aktywnego pliku do pętli
+  POST /api/calibration/upload      - Bezpieczny upload i asynchroniczne skalowanie wideo
 """
 
 import csv
@@ -20,6 +21,7 @@ import io
 import os
 import time
 import logging
+import asyncio
 import yaml
 from datetime import datetime
 
@@ -29,10 +31,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
-
+from pydantic import BaseModel, Field
+from typing import Optional
+class ConfigUpdateRequest(BaseModel):
+    persist: bool = True
+    line_y1: Optional[int] = Field(None, ge=0, le=2160)
+    line_y2: Optional[int] = Field(None, ge=0, le=2160)
+    line_x1: Optional[int] = Field(None, ge=0, le=3840)
+    line_x2: Optional[int] = Field(None, ge=0, le=3840)
+    min_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    min_width: Optional[int] = Field(None, ge=1)
+    max_width: Optional[int] = Field(None, ge=1)
+    min_height: Optional[int] = Field(None, ge=1)
+    max_height: Optional[int] = Field(None, ge=1)
+    min_aspect_ratio: Optional[float] = Field(None, ge=0.0)
+    min_movement_px: Optional[int] = Field(None, ge=0)
+    show_line: Optional[bool] = None
+    show_boxes: Optional[bool] = None
+    show_tracks: Optional[bool] = None
+    show_persons: Optional[bool] = None
+    show_hud: Optional[bool] = None
 LOG = logging.getLogger("bike_counter")
 
-# Główny katalog projektu na Jetsonie
 PROJECT_ROOT = "/home/student/CounterProject"
 CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, "config.yaml")
 
@@ -40,7 +60,7 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(PROJECT_ROOT, "calibration_samples")
 os.makedirs(SAMPLES_DIR, exist_ok=True)
 
-app = FastAPI(title="Mobility Counter", version="3.0")
+app = FastAPI(title="Mobility Counter", version="4.6")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +69,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Szablony HTML (dostosowane ścieżki)
 templates_dir = os.path.join(PROJECT_ROOT, "Dashboard", "templates")
 if not os.path.exists(templates_dir):
     templates_dir = os.path.join(_BASE, "Dashboard", "templates")
@@ -61,6 +80,7 @@ _location_id = None
 _device_id = None
 _config = {}
 _start_time = time.time()
+_server_instance = None
 
 
 def set_shared_state(s):
@@ -91,10 +111,14 @@ def get_recent_logs(lines_count=15):
         return [f"Error reading logs: {str(e)}"]
 
 def run():
+    global _server_instance
     host = _config.get("dashboard_host", "0.0.0.0")
     port = _config.get("dashboard_port", 8080)
     LOG.info("Dashboard server starting on %s:%d", host, port)
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    
+    config = uvicorn.Config(app=app, host=host, port=port, log_level="warning", loop="asyncio")
+    _server_instance = uvicorn.Server(config)
+    _server_instance.run()
 
 
 def _get_stats():
@@ -110,7 +134,6 @@ def _get_stats():
             "fps": round(getattr(_state, "fps", 0.0), 1),
             "frame_count": getattr(_state, "frame_count", 0),
             "active_tracks": len(getattr(_state, "active_tracks", [])),
-            "total_detections": getattr(_state, "total_detections", 0),
             "camera_ok": getattr(_state, "camera_ok", False),
             "time_synced": datetime.now().year >= 2024,
             "calibration_mode": getattr(_state, "calibration_mode", False),
@@ -168,7 +191,7 @@ async def health():
     status = "healthy" if (camera_ok and db_ok) else "degraded"
     return JSONResponse({
         "status": status,
-        "version": _config.get("version", "3.0"),
+        "version": _config.get("version", "4.6"),
         "uptime_seconds": uptime,
         "camera_ok": camera_ok,
         "database_ok": db_ok,
@@ -183,7 +206,7 @@ async def health():
 async def dashboard(request: Request):
     template_name = "dashboard.html"
     context = {
-        "version": _config.get("version", "3.0"),
+        "version": _config.get("version", "4.6"),
         "device_name": _config.get("device_name", ""),
         "request": request,
     }
@@ -211,11 +234,11 @@ async def stats():
 
 @app.get("/database", response_class=HTMLResponse)
 async def database_view(request: Request):
-    return templates.TemplateResponse("database.html", {
-        "request": request,
-        "version": _config.get("version", "3.0"),
-    })
-
+    return templates.TemplateResponse(
+        request=request,
+        name="database.html",
+        context={"version": _config.get("version", "4.6")}
+    )
 
 @app.get("/api/crossings")
 async def api_crossings():
@@ -256,7 +279,7 @@ async def api_quarterly():
         cur.execute(
             """SELECT c15.date, c15.czas, (c15.il_row + c15.il_hul) as total_count
                FROM co_15_minut c15
-               JOIN locations l ON c15.lokalizacja = l.name
+               JOIN locations l ON c15.location_id = l.name
                WHERE l.id = %s AND l.device_id = %s
                ORDER BY c15.date DESC, c15.czas DESC""",
             (_location_id, _device_id),
@@ -345,28 +368,26 @@ async def export_detail():
 
 @app.get("/api/models")
 async def get_models():
-    # Zawsze czytaj bieżący stan z RAM-u, unikaj błędów z plikami!
     if _state and hasattr(_state, "config"):
         cfg = _state.config
     else:
         cfg = _config.copy()
 
     model_cfg = cfg.get("model", {})
-    active = model_cfg.get("active_model", "yolo11s_scooter")
+    active = model_cfg.get("active_model", "yolo26s")
     models = model_cfg.get("available_models", {})
 
-    # Bezpieczny fallback na pliki .engine
     if not models:
         models = {
-            "yolo11s_scooter": {
-                "name": "YOLO11s (Rowery + Hulajnogi)",
-                "path": "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine",
-                "supports_scooters": True
-            },
             "yolo11n_base": {
                 "name": "YOLO11n (Tylko rowery)",
                 "path": "/home/student/CounterProject/Silnik V2/yolo11n.engine",
                 "supports_scooters": False
+            },
+             "yolo26s": {
+                "name": "YOLO26",
+                "path": "/home/student/CounterProject/SilnikV5/results/runs/yolo11s_licznik/weights/best.engine",
+                "supports_scooters": True
             }
         }
 
@@ -378,6 +399,8 @@ async def select_model(data: dict):
     model_key = data.get("model_key")
     if not model_key:
         return {"status": "error", "message": "No model_key specified"}
+    
+    LOG.info("[API DASHBOARDU] Odebrano żądanie zmiany na model: '%s'", model_key)
     
     cfg = {}
     if os.path.exists(CONFIG_FILE_PATH):
@@ -392,43 +415,39 @@ async def select_model(data: dict):
     available = cfg["model"].get("available_models", {})
     if not available:
         available = {
-            "yolo11s_scooter": {
-                "name": "YOLO11s (Rowery + Hulajnogi)",
-                "path": "/home/student/CounterProject/Silnik_hul_bikev4/results/runs/yolo11s_licznik/weights/best.engine",
-                "supports_scooters": True
-            },
             "yolo11n_base": {
                 "name": "YOLO11n (Tylko rowery)",
                 "path": "/home/student/CounterProject/Silnik V2/yolo11n.engine",
-                "supports_scooters": False
+                "supports_scooters": False,
+            },
+             "yolo26s": {
+                "name": "YOLO26",
+                "path": "/home/student/CounterProject/SilnikV5/results/runs/yolo11s_licznik/weights/best.engine",
+                "supports_scooters": True
             }
         }
         cfg["model"]["available_models"] = available
 
     if model_key not in available:
+        LOG.error("[API DASHBOARDU] Błąd: Model '%s' nie istnieje w słowniku available_models!", model_key)
         return {"status": "error", "message": f"Model key '{model_key}' not found in configuration"}
 
     cfg["model"]["active_model"] = model_key
     cfg["model_path"] = available[model_key]["path"]
 
-    # Aktualizacja w pamięci
     if _state and hasattr(_state, "config"):
         with _state.lock:
             _state.config = cfg
             _state.model_reload_requested = True
 
-    # Zapis na stałe do poprawnej ścieżki
     with open(CONFIG_FILE_PATH, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False)
 
-    LOG.info("Active model changed to '%s' (%s)", model_key, available[model_key]["name"])
     return {"status": "ok", "active_model": model_key}
 
 
 @app.post("/api/config")
-async def update_config(data: dict):
-    persist = data.get("persist", True)
-
+async def update_config(data: ConfigUpdateRequest):  # <--- Magia Pydantic
     cfg = {}
     if os.path.exists(CONFIG_FILE_PATH):
         with open(CONFIG_FILE_PATH, "r") as f:
@@ -437,51 +456,31 @@ async def update_config(data: dict):
         cfg = _config.copy()
 
     for sec in ["tracker", "model", "filters", "osd"]:
-        if sec not in cfg:
-            cfg[sec] = {}
+        if sec not in cfg: cfg[sec] = {}
 
+    # Omijamy manualne sprawdzanie i konwersje (int(), float()), Pydantic już to zrobił!
+    updates = data.model_dump(exclude_unset=True) # Zwraca tylko przesłane pola
+    
     for key in ["show_line", "show_boxes", "show_tracks", "show_persons", "show_hud"]:
-        if key in data:
-            cfg["osd"][key] = bool(data[key])
+        if key in updates: cfg["osd"][key] = updates[key]
             
-    if "crossing_line_y" in data and data["crossing_line_y"] != "":
-        cfg["tracker"]["crossing_line_y"] = int(data["crossing_line_y"])
-    if "line_x1" in data and data["line_x1"] != "":
-        cfg["tracker"]["line_x1"] = int(data["line_x1"])
-    if "line_x2" in data and data["line_x2"] != "":
-        cfg["tracker"]["line_x2"] = int(data["line_x2"])
+    for key in ["line_y1", "line_y2", "line_x1", "line_x2"]:
+        if key in updates: cfg["tracker"][key] = updates[key]
 
-    if "min_confidence" in data and data["min_confidence"] != "":
-        raw_conf = str(data["min_confidence"]).replace(",", ".")
-        cfg["model"]["min_confidence"] = float(raw_conf)
-
-    if "min_width" in data and data["min_width"] != "":
-        cfg["filters"]["min_width"] = int(data["min_width"])
-    if "max_width" in data and data["max_width"] != "":
-        cfg["filters"]["max_width"] = int(data["max_width"])
-    if "min_height" in data and data["min_height"] != "":
-        cfg["filters"]["min_height"] = int(data["min_height"])
-    if "max_height" in data and data["max_height"] != "":
-        cfg["filters"]["max_height"] = int(data["max_height"])
-
-    if "min_aspect_ratio" in data and data["min_aspect_ratio"] != "":
-        raw_ar = str(data["min_aspect_ratio"]).replace(",", ".")
-        cfg["filters"]["min_aspect_ratio"] = float(raw_ar)
-    if "min_movement_px" in data and data["min_movement_px"] != "":
-        cfg["filters"]["min_movement_px"] = int(data["min_movement_px"])
+    if "min_confidence" in updates: cfg["model"]["min_confidence"] = updates["min_confidence"]
+    
+    for key in ["min_width", "max_width", "min_height", "max_height", "min_aspect_ratio", "min_movement_px"]:
+        if key in updates: cfg["filters"][key] = updates[key]
 
     if _state and hasattr(_state, "config"):
         _state.config = cfg
 
-    if persist:
+    if data.persist:
         with open(CONFIG_FILE_PATH, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False)
-        LOG.info("Config permanently saved to disk: %s", data)
-    else:
-        LOG.info("Config applied temporarily in RAM: %s", data)
+        LOG.info("Config permanently saved to disk.")
 
-    return {"status": "ok", "persisted": persist, "config": cfg}
-
+    return {"status": "ok", "persisted": data.persist, "config": cfg}
 
 @app.post("/api/config/reset")
 async def reset_config():
@@ -500,7 +499,10 @@ async def reset_config():
 
 @app.get("/api/calibration/files")
 async def get_calibration_files():
-    files = [f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
+    files = [
+        f for f in os.listdir(SAMPLES_DIR) 
+        if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')) and not f.startswith('temp_')
+    ]
     files.sort(reverse=True)
     return {"files": files}
 
@@ -563,10 +565,41 @@ async def calibration_playback(data: dict):
     }
 
 
+def _process_and_scale_video_sync(temp_path, final_path, target_w, target_h):
+    cap_in = cv2.VideoCapture(temp_path)
+    if not cap_in.isOpened():
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False, "Cannot decode uploaded video file"
+
+    fps = cap_in.get(cv2.CAP_PROP_FPS) or 15.0
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(final_path, fourcc, fps, (target_w, target_h))
+
+    while True:
+        ret, frame = cap_in.read()
+        if not ret:
+            break
+        resized_frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        out.write(resized_frame)
+
+    cap_in.release()
+    out.release()
+
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+    return True, None
+
+
 @app.post("/api/calibration/upload")
 async def calibration_upload(file: UploadFile = File(...)):
-    clean_name = os.path.basename(file.filename)
-    temp_path = os.path.join(SAMPLES_DIR, f"temp_{clean_name}")
+    raw_name = os.path.basename(file.filename)
+    clean_name = raw_name.replace(" ", "_")
+    if clean_name.startswith("temp_"):
+        clean_name = clean_name.replace("temp_", "", 1)
+    
+    temp_path = os.path.join("/tmp", f"upload_{clean_name}")
     final_path = os.path.join(SAMPLES_DIR, clean_name)
     
     target_w = _config.get("camera_width", 640)
@@ -577,28 +610,12 @@ async def calibration_upload(file: UploadFile = File(...)):
         with open(temp_path, "wb") as f:
             f.write(contents)
 
-        cap_in = cv2.VideoCapture(temp_path)
-        if not cap_in.isOpened():
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            return {"status": "error", "message": "Cannot decode uploaded video file"}
+        success, err_msg = await asyncio.to_thread(
+            _process_and_scale_video_sync, temp_path, final_path, target_w, target_h
+        )
 
-        fps = cap_in.get(cv2.CAP_PROP_FPS) or 15.0
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(final_path, fourcc, fps, (target_w, target_h))
-
-        while True:
-            ret, frame = cap_in.read()
-            if not ret:
-                break
-            resized_frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-            out.write(resized_frame)
-
-        cap_in.release()
-        out.release()
-
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if not success:
+            return JSONResponse({"status": "error", "message": err_msg}, status_code=400)
 
         LOG.info("Calibration sample uploaded & scaled to %dx%d: %s", target_w, target_h, clean_name)
         
@@ -617,4 +634,4 @@ async def calibration_upload(file: UploadFile = File(...)):
         if os.path.exists(temp_path):
             os.remove(temp_path)
         LOG.error("Failed to upload and scale video: %s", str(e))
-        return {"status": "error", "message": str(e)}
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)

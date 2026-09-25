@@ -1,0 +1,7 @@
+tracker_type: bytetrack
+track_high_thresh: 0.25    # próg pierwszej fazy dopasowania
+track_low_thresh: 0.10     # próg ratunkowy dla zasłoniętych obiektów
+new_track_thresh: 0.30     # minimalna pewność do utworzenia nowego ID
+track_buffer: 60           # ile klatek trzymać obiekt w pamięci, gdy zniknie (2 sekundy!)
+match_thresh: 0.8
+fuse_score: True

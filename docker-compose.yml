@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  # 1. Nasz główny system Wizyjny (Python)
+  bike_counter:
+    build: .
+    container_name: bike_counter
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./screenshots:/app/screenshots
+      - ./calibration_samples:/app/calibration_samples
+    devices:
+      - /dev/video0:/dev/video0  # Przekazanie fizycznej kamery USB do Dockera
+    environment:
+      - BIKE_DB_HOST=mysql_db
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia     # Użycie GPU Orina wewnątrz kontenera
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - mysql_db
+
+  # 2. Silnik Bazy Danych
+  mysql_db:
+    image: mysql:8.0
+    container_name: bike_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: bicycle_counter
+      MYSQL_USER: bikecounter
+      MYSQL_PASSWORD: BikeCount2026!
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # 3. Interfejs do podglądu bazy (Dla Ciebie jako Admina)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: bike_phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql_db
+      PMA_USER: bikecounter
+      PMA_PASSWORD: BikeCount2026!
+
+volumes:
+  mysql_data:
